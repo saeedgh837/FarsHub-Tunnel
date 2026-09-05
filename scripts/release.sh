@@ -75,6 +75,7 @@ tar -cf "$work/b.tar" -C "$root/.." \
     --owner=0 --group=0 --numeric-owner \
     --transform="s,^$name,$PKG," \
     --exclude="$name/bin" \
+    --exclude='.git*' \
     --exclude='.claude' \
     --exclude='web/devserver.py' \
     --exclude='__pycache__' \
