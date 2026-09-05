@@ -10,7 +10,7 @@
 # ==========================================================================
 set -eu
 
-CLI_VERSION='1.0.0'
+CLI_VERSION='1.0.1'
 BRAND='FarsHub Tunnel'
 SUPPORT='https://t.me/vpsfa'
 
