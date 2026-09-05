@@ -204,12 +204,27 @@ function renderPorts(d) {
     return;
   }
 
-  const maxTotal = Math.max(...rows.map((p) => p.up + p.down), 1);
+  /* موتور با sniffer روشن برای هر پورت *یک* عدد ترکیبی می‌دهد، نه ارسال و
+     دریافت جدا. در آن حالت به‌جای دو ستون خالی، یک ستون «ترافیک» می‌گذاریم. */
+  const split = rows.some((p) => p.up > 0 || p.down > 0);
+  const tot = (p) => (split ? p.up + p.down : (p.traffic ?? 0));
+
+  const maxTotal = Math.max(...rows.map(tot), 1);
   const sums = rows.reduce((a, p) => ({
     conns: a.conns + (p.conns ?? 0),
     up: a.up + p.up,
     down: a.down + p.down,
-  }), { conns: 0, up: 0, down: 0 });
+    traffic: a.traffic + (p.traffic ?? 0),
+  }), { conns: 0, up: 0, down: 0, traffic: 0 });
+
+  const volHead = split
+    ? `<th scope="col" class="cell-num">${t('ports.col.up')}</th>
+       <th scope="col" class="cell-num">${t('ports.col.down')}</th>`
+    : `<th scope="col" class="cell-num">${t('ports.col.traffic')}</th>`;
+  const volFoot = split
+    ? `<td class="cell-num num">${fmtBytes(sums.up)}</td>
+       <td class="cell-num num">${fmtBytes(sums.down)}</td>`
+    : `<td class="cell-num num">${fmtBytes(sums.traffic)}</td>`;
 
   const table = document.createElement('table');
   table.innerHTML = `
@@ -218,8 +233,7 @@ function renderPorts(d) {
         <th scope="col">${t('ports.col.port')}</th>
         <th scope="col">${t('ports.col.target')}</th>
         <th scope="col" class="cell-num">${t('ports.col.conns')}</th>
-        <th scope="col" class="cell-num">${t('ports.col.up')}</th>
-        <th scope="col" class="cell-num">${t('ports.col.down')}</th>
+        ${volHead}
         <th scope="col" class="cell-num">${t('ports.col.rate')}</th>
         <th scope="col">${t('ports.col.share')}</th>
       </tr>
@@ -229,8 +243,7 @@ function renderPorts(d) {
       <tr>
         <td colspan="2">${t('ports.total')}</td>
         <td class="cell-num num">${num(sums.conns)}</td>
-        <td class="cell-num num">${fmtBytes(sums.up)}</td>
-        <td class="cell-num num">${fmtBytes(sums.down)}</td>
+        ${volFoot}
         <td class="cell-num">—</td>
         <td></td>
       </tr>
@@ -238,14 +251,17 @@ function renderPorts(d) {
 
   const tbody = $('tbody', table);
   for (const p of rows) {
-    const share = ((p.up + p.down) / maxTotal) * 100;
+    const share = (tot(p) / maxTotal) * 100;
+    const vol = split
+      ? `<td class="cell-num num">${fmtBytes(p.up)}</td>
+         <td class="cell-num num">${fmtBytes(p.down)}</td>`
+      : `<td class="cell-num num">${p.traffic == null ? t('unit.none') : fmtBytes(p.traffic)}</td>`;
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td><span class="port-chip">${escapeHTML(String(p.port))}</span></td>
       <td class="mono">${escapeHTML(p.target ?? t('unit.none'))}</td>
       <td class="cell-num num">${p.conns == null ? t('unit.none') : num(p.conns)}</td>
-      <td class="cell-num num">${fmtBytes(p.up)}</td>
-      <td class="cell-num num">${fmtBytes(p.down)}</td>
+      ${vol}
       <td class="cell-num num">${p.rate == null ? t('unit.none') : fmtRate(p.rate)}</td>
       <td>
         <span class="share">

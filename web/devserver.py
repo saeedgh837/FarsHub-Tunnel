@@ -2,8 +2,14 @@
 """
 FarsHub Panel — local preview server.
 
-Serves web/ and fakes the /data endpoint so the panel can be checked without a
-running tunnel. Development only; never deploy this.
+Serves web/ and fakes the service endpoints so the panel can be checked without
+a running tunnel. Development only; never deploy this.
+
+The two endpoints deliberately return *different* shapes, exactly like the real
+engine does:
+
+    /stats   tunnel + system stats, one flat object
+    /data    per-port usage, an array — only when sniffer = true
 
     python web/devserver.py [--port 8770]
 """
@@ -37,6 +43,30 @@ EVENTS = [
 ]
 
 
+def human(n):
+    """Format like the engine does: base 1024, SI labels ("2.97 KB")."""
+    units = ["B", "KB", "MB", "GB", "TB"]
+    v = float(n)
+    i = 0
+    while v >= 1024 and i < len(units) - 1:
+        v /= 1024
+        i += 1
+    return f"{v:.0f} {units[i]}" if i == 0 else f"{v:.2f} {units[i]}"
+
+
+def sniffer_usage():
+    """/data with sniffer = true: one *combined* figure per port, nothing else.
+
+    No target, no connection count, no split of sent vs received — the engine
+    simply does not report them. The ports table adapts to that.
+    """
+    t = time.time() - T0
+    return [
+        {"Port": port, "ReadableUsage": human(t * 1.35e6 * (0.42 / (i + 1)))}
+        for i, (port, _target) in enumerate(PORTS)
+    ]
+
+
 def snapshot(bare=False):
     """Plausible moving numbers so sparklines and rails have something to show.
 
@@ -48,18 +78,7 @@ def snapshot(bare=False):
     wave = (math.sin(t / 9) + 1) / 2
     tx = int(2.4e6 + wave * 9.5e6 + random.uniform(-4e5, 4e5))
     rx = int(1.1e6 + (1 - wave) * 6.2e6 + random.uniform(-3e5, 3e5))
-
-    ports = []
-    for i, (port, target) in enumerate(PORTS):
-        share = 0.42 / (i + 1)
-        ports.append({
-            "port": port,
-            "target": target,
-            "connections": max(0, int(48 * share + random.uniform(-3, 3))),
-            "upload": int(t * 9.1e5 * share),
-            "download": int(t * 4.4e5 * share),
-            "rate": int((tx + rx) * share),
-        })
+    conns = sum(max(0, int(48 * (0.42 / (i + 1)))) for i in range(len(PORTS)))
 
     return {
         "status": "connected",
@@ -81,7 +100,7 @@ def snapshot(bare=False):
         "tx_rate": tx,
         "rx_rate": rx,
         "latency": round(28 + wave * 22 + random.uniform(-4, 4), 1),
-        "connections": sum(p["connections"] for p in ports),
+        "connections": conns,
         "goroutines": 180 + int(wave * 60),
         "uptime": int(t) + 96_400,
         "cpu": round(14 + wave * 26, 1),
@@ -90,7 +109,7 @@ def snapshot(bare=False):
         "disk_percent": 81.4,
         "disk": None if bare else {"used": 34_882_670_592, "total": 42_949_672_960},
         "swap_percent": round(3 + wave * 2, 1),
-        "ports": ports,
+        # عمداً بدون "ports" — موتور واقعی هم پورت‌ها را داخل آمار نمی‌گذارد.
         "events": [
             {"time": time.strftime("%Y-%m-%dT%H:%M:%S"), "level": lvl, "message": msg}
             for lvl, msg in EVENTS
@@ -102,22 +121,31 @@ class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *a, **kw):
         super().__init__(*a, directory=ROOT, **kw)
 
+    def _json(self, payload):
+        body = json.dumps(payload).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
+
     def do_GET(self):
         path, _, query = self.path.partition("?")
-        if path in ("/data", "/stats"):
+        if path == "/stats":
             # ?bare=1 → پاسخ حداقلی، برای تست حالت «سرویس چیزی نمی‌فرستد»
-            body = json.dumps(snapshot(bare="bare=1" in query)).encode()
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
-            self.send_header("Cache-Control", "no-store")
-            self.end_headers()
-            self.wfile.write(body)
-            return
+            return self._json(snapshot(bare="bare=1" in query))
+        if path == "/data":
+            # ?nosniffer=1 → همان چیزی که موتور با sniffer خاموش می‌دهد
+            if "nosniffer=1" in query:
+                self.send_error(404, "sniffer disabled")
+                return
+            return self._json(sniffer_usage())
         super().do_GET()
 
     def log_message(self, fmt, *args):
-        if "/data" not in (args[0] if args else ""):
+        first = args[0] if args else ""
+        if "/data" not in first and "/stats" not in first:
             super().log_message(fmt, *args)
 
 
