@@ -172,7 +172,7 @@ function renderTiles(d) {
   setScaled('k-throughput', total == null ? null : bitrate(total));
   setText('k-conns', d.conns == null ? t('unit.none') : num(d.conns));
   setText('k-latency', d.latency == null ? t('unit.none') : num(Math.round(d.latency)));
-  setScaled('k-total', bytes((d.totalUp ?? 0) + (d.totalDown ?? 0)));
+  setScaled('k-total', bytes(d.totalTraffic ?? ((d.totalUp ?? 0) + (d.totalDown ?? 0))));
 
   if (total != null) history.throughput.push(total);
   if (d.latency != null) history.latency.push(d.latency);
@@ -297,7 +297,7 @@ function renderMeters(d) {
     { key: 'sys.cpu', pct: d.cpu },
     { key: 'sys.ram', pct: d.ram, used: d.ramUsed, total: d.ramTotal },
     { key: 'sys.disk', pct: d.disk, used: d.diskUsed, total: d.diskTotal },
-    { key: 'sys.swap', pct: d.swap },
+    { key: 'sys.swap', pct: d.swap, used: d.swapUsed },
   ];
 
   const frag = document.createDocumentFragment();
@@ -308,6 +308,13 @@ function renderMeters(d) {
     el.dataset.level = level(m.pct);
 
     const value = m.pct == null ? 0 : Math.min(100, Math.max(0, m.pct));
+
+    /* موتور فقط برای CPU درصد می‌دهد؛ حافظه/دیسک/سواپ مقدار مطلق‌اند و بدون
+       «کل»، درصدی وجود ندارد. در آن حالت به‌جای درصد، خود حجم را نشان می‌دهیم
+       تا خانه‌ی متر خالی نماند. */
+    const head = m.pct != null ? pct(m.pct)
+      : m.used != null ? fmtBytes(m.used)
+      : t('unit.none');
     const detail = (m.used != null && m.total != null)
       ? `${fmtBytes(m.used)} ${t('sys.of')} ${fmtBytes(m.total)}`
       : '';
@@ -315,7 +322,7 @@ function renderMeters(d) {
     el.innerHTML = `
       <div class="meter__head">
         <span class="meter__name">${escapeHTML(t(m.key))}</span>
-        <span class="meter__pct num">${m.pct == null ? t('unit.none') : pct(m.pct)}</span>
+        <span class="meter__pct num">${escapeHTML(head)}</span>
       </div>
       <div class="meter__track" role="meter" aria-valuemin="0" aria-valuemax="100"
            aria-valuenow="${m.pct == null ? '' : value.toFixed(0)}"

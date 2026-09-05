@@ -335,9 +335,11 @@ export function bytes(v) {
   return scale(v, BYTE_UNITS, 1024);
 }
 
-/** Bits per second → { value, unit }. */
+/** Bytes per second → { value, unit } با واحد بیت.
+    موتور نرخ را بایت بر ثانیه می‌دهد ("982.00 B/s" — روی سرور تأیید شد) ولی
+    پهنای باند در فارسی و انگلیسی هر دو با bit/s گفته می‌شود، پس ×۸ می‌کنیم. */
 export function bitrate(v) {
-  return scale(v, BIT_UNITS, 1000);
+  return scale((Number(v) || 0) * 8, BIT_UNITS, 1000);
 }
 
 /** Seconds → compact duration, e.g. "٣ روز ٤ ساعت" / "3d 4h". */
