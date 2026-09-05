@@ -3,6 +3,9 @@
    موتور دو اندپوینت دارد و محتوایشان یکی نیست:
      /stats  آمار تونل و منابع سیستم (یک شیء تخت، کلیدها camelCase)
      /data   با sniffer=true آرایه‌ی مصرف هر پورت؛ در غیر این صورت HTML موتور
+   و یک منبع سوم که موتور نیست:
+     panel.json  فایل ایستا کنار پنل، برای چیزهایی که موتور هرگز نمی‌گوید:
+                 نقش (server/client)، نسخه، مشخصات میزبان. اختیاری است.
    شکل دقیق پاسخ نسخه‌به‌نسخه متفاوت است، پس اینجا با چند نام محتمل برای هر
    فیلد کار می‌کنیم و هر چه پیدا نشد null می‌ماند (پنل «—» نشان می‌دهد، عدد
    جعلی نمی‌سازد).
@@ -57,13 +60,18 @@ function pickNum(obj, names) {
 /**
  * پاسخ خام سرویس → شکل واحدی که رندرها مصرف می‌کنند.
  * portsRaw: آرایه‌ی مصرف پورت‌ها، از اندپوینت جدا. اگر بیاید، جای هر چیزی که
- * داخل خود پاسخ آمار بود را می‌گیرد.
+ *           داخل خود پاسخ آمار بود را می‌گیرد.
+ * meta:     محتوای panel.json — چیزهایی که موتور هرگز گزارش نمی‌کند (نقش،
+ *           نسخه، مشخصات میزبان). فقط جای فیلدهای *غایب* را پر می‌کند؛ هر چه
+ *           سرویس زنده بدهد اولویت دارد.
  */
-export function normalize(raw, portsRaw = null) {
+export function normalize(raw, portsRaw = null, meta = null) {
   const r = raw || {};
   // بعضی نسخه‌ها مشخصات میزبان را داخل یک شیء تودرتو می‌گذارند
   const h = pick(r, ['server', 'host', 'system', 'machine', 'node'], {}) || {};
   const host = typeof h === 'object' ? h : {};
+  const m = (meta && typeof meta === 'object' && !Array.isArray(meta)) ? meta : {};
+  const mh = (m.host && typeof m.host === 'object') ? m.host : {};
 
   const rawPorts = portsRaw ?? pick(r, ['ports', 'usage', 'connections', 'data'], []);
   const ports = (Array.isArray(rawPorts) ? rawPorts : [])
@@ -92,9 +100,13 @@ export function normalize(raw, portsRaw = null) {
 
   return {
     state: normalizeState(statusRaw),
-    role: pick(r, ['role', 'mode', 'side']),
-    transport: pick(r, ['transport', 'protocol']) ?? transportInStatus,
-    version: pick(r, ['version', 'build']),
+    /* موتور نقش را اعلام نمی‌کند — نه server/client و نه چیز معادلی در /stats.
+       پس از panel.json می‌آید. اگر آن هم نبود «نامعلوم» می‌ماند و پنل حدس
+       نمی‌زند، چون نقشِ غلط بدتر از نقشِ نامعلوم است. */
+    role: pick(r, ['role', 'mode', 'side']) ?? pick(m, ['role', 'side', 'mode']),
+    transport: pick(r, ['transport', 'protocol']) ?? transportInStatus
+      ?? pick(m, ['transport']),
+    version: pick(r, ['version', 'build']) ?? pick(m, ['version']),
 
     txRate: pickNum(r, ['tx_rate', 'upload_speed', 'up_bps', 'sent_rate', 'uploadSpeed']),
     rxRate: pickNum(r, ['rx_rate', 'download_speed', 'down_bps', 'recv_rate', 'downloadSpeed']),
@@ -127,25 +139,33 @@ export function normalize(raw, portsRaw = null) {
     swap: pickNum(r, ['swap', 'swap_percent', 'swap.used_percent']),
     swapUsed: pickNum(r, ['swap_used', 'swap.used', 'swapUsage']),
 
-    /* مشخصات میزبان — همه اختیاری. هر چه سرویس نفرستد `—` می‌شود.
-       در r و در شیء تودرتو (server/host/system) هر دو می‌گردیم. */
+    /* مشخصات میزبان — همه اختیاری. ترتیب جست‌وجو: شیء تودرتوی پاسخ، ریشه‌ی
+       پاسخ، و آخر panel.json. هر چه هیچ‌جا نبود ردیفش از کارت حذف می‌شود. */
     host: {
       name: pick(host, ['hostname', 'name', 'host'])
-        ?? pick(r, ['hostname', 'host_name', 'server_name']),
+        ?? pick(r, ['hostname', 'host_name', 'server_name'])
+        ?? pick(mh, ['name', 'hostname']),
       ip: pick(host, ['ip', 'public_ip', 'address'])
-        ?? pick(r, ['ip', 'server_ip', 'public_ip', 'bind_ip']),
+        ?? pick(r, ['ip', 'server_ip', 'public_ip', 'bind_ip'])
+        ?? pick(mh, ['ip', 'public_ip']),
       location: pick(host, ['location', 'country', 'region', 'datacenter'])
-        ?? pick(r, ['location', 'country', 'region']),
+        ?? pick(r, ['location', 'country', 'region'])
+        ?? pick(mh, ['location', 'country', 'region']),
       os: pick(host, ['os', 'platform', 'distro', 'os_name'])
-        ?? pick(r, ['os', 'platform', 'distro']),
+        ?? pick(r, ['os', 'platform', 'distro'])
+        ?? pick(mh, ['os', 'platform', 'distro']),
       kernel: pick(host, ['kernel', 'kernel_version', 'release'])
-        ?? pick(r, ['kernel', 'kernel_version']),
+        ?? pick(r, ['kernel', 'kernel_version'])
+        ?? pick(mh, ['kernel', 'kernel_version']),
       arch: pick(host, ['arch', 'architecture', 'goarch'])
-        ?? pick(r, ['arch', 'architecture', 'goarch']),
+        ?? pick(r, ['arch', 'architecture', 'goarch'])
+        ?? pick(mh, ['arch', 'architecture']),
       cores: pickNum(host, ['cores', 'cpu_cores', 'cpus', 'num_cpu'])
-        ?? pickNum(r, ['cores', 'cpu_cores', 'cpus', 'num_cpu']),
+        ?? pickNum(r, ['cores', 'cpu_cores', 'cpus', 'num_cpu'])
+        ?? pickNum(mh, ['cores', 'cpu_cores', 'cpus']),
       bind: pick(host, ['bind_addr', 'bind', 'listen'])
-        ?? pick(r, ['bind_addr', 'bind', 'listen', 'listen_addr']),
+        ?? pick(r, ['bind_addr', 'bind', 'listen', 'listen_addr'])
+        ?? pick(mh, ['bind', 'bind_addr', 'listen']),
       boot: pickNum(host, ['boot_time', 'boot', 'uptime_system'])
         ?? pickNum(r, ['boot_time', 'system_uptime', 'host_uptime']),
     },
@@ -204,6 +224,17 @@ async function getJSON(url, timeoutMs) {
   }
 }
 
+/* panel.json — فایل ایستای کنار خود پنل، با چیزهایی که موتور در /stats
+   نمی‌گذارد: نقش (server/client)، نسخه، و مشخصات میزبان. یک بار خوانده
+   می‌شود و نتیجه — حتی اگر ۴۰۴ باشد — کش می‌شود؛ پس نبودنش نه خطاست نه
+   هر ۲ ثانیه یک درخواست هدر می‌دهد. `farshub install` این فایل را می‌سازد. */
+let metaPromise = null;
+
+function panelMeta(url = 'panel.json', timeoutMs = 4000) {
+  metaPromise = metaPromise ?? getJSON(url, timeoutMs).catch(() => null);
+  return metaPromise;
+}
+
 /**
  * آمار را از اولین اندپوینتی می‌گیرد که واقعاً پاسخ آماری بدهد، و مصرف
  * پورت‌ها را — اگر در دسترس باشد — از اندپوینت جدا. نبودن مصرف پورت‌ها خطا
@@ -239,5 +270,5 @@ export async function fetchStats(
     try { ports = asPorts(await getJSON(url, timeoutMs)); } catch { /* اختیاری */ }
   }
 
-  return normalize(stats, ports);
+  return normalize(stats, ports, await panelMeta(undefined, timeoutMs));
 }

@@ -102,6 +102,69 @@ need_write() {
 
 have_systemd() { command -v systemctl >/dev/null 2>&1; }
 
+# مقدار یک کلید از فایل کانفیگ TOML؛ کامنت و گیومه حذف می‌شود.
+conf_val() {
+  sed -n "s/^[[:space:]]*$2[[:space:]]*=[[:space:]]*//p" "$1" 2>/dev/null \
+    | sed -e 's/[[:space:]]*#.*$//' -e 's/"//g' -e 's/[[:space:]]*$//' \
+    | head -n1
+}
+
+# ------------------------------------------------------------- panel.json --
+# موتور اجرا در /stats نه نقش خودش را می‌گوید، نه نام میزبان، نه نسخه — پس
+# پنل «سمت اجرا نامعلوم» نشان می‌دهد و کارت مشخصات سرور خالی می‌ماند. این فایل
+# همان چند فقره را کنار پنل می‌گذارد. اختیاری است: نبودش خطا نیست.
+jesc() { printf '%s' "${1:-}" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; }
+
+# انباره‌ی ساخت شیء JSON: فیلد خالی نوشته نمی‌شود (پنل کلید غایب را از کارت
+# مشخصات حذف می‌کند، پس رشته‌ی خالی فقط شلوغی است) و کاما فقط بین فیلدها می‌آید.
+NL='
+'
+jadd()     { _jbuf="${_jbuf:+$_jbuf,$NL}    \"$1\": $2"; }
+jadd_str() { [ -n "${2:-}" ] && jadd "$1" "\"$(jesc "$2")\""; return 0; }
+jadd_num() {
+  case ${2:-} in ''|*[!0-9]*) return 0 ;; esac
+  jadd "$1" "$2"
+}
+
+host_ip() {
+  a=$(hostname -I 2>/dev/null | awk '{print $1}') || a=''
+  [ -n "$a" ] || a=$(ip -4 route get 1 2>/dev/null |
+        awk '{for(i=1;i<=NF;i++) if($i=="src"){print $(i+1); exit}}') || a=''
+  printf '%s' "$a"
+}
+
+panel_json() {
+  side=$1
+  conf=$(side_conf "$side")
+
+  # فقط سمت server آدرس Listen دارد؛ کلاینت remote_addr دارد که «Bind» نیست.
+  bind=''
+  if [ "$side" = server ] && [ -f "$conf" ]; then
+    bind=$(conf_val "$conf" bind_addr)
+  fi
+
+  ver="$BRAND $CLI_VERSION"
+  cv=$(core_version 2>/dev/null) || cv=''
+  [ -n "$cv" ] && ver="$ver — موتور $cv"
+
+  os=$(. /etc/os-release 2>/dev/null && printf '%s' "${PRETTY_NAME:-}") || os=''
+
+  _jbuf=''
+  jadd_str name   "$(hostname 2>/dev/null || true)"
+  jadd_str ip     "$(host_ip)"
+  jadd_str bind   "$bind"
+  jadd_str os     "$os"
+  jadd_str kernel "$(uname -r 2>/dev/null || true)"
+  jadd_str arch   "$(uname -m 2>/dev/null || true)"
+  jadd_num cores  "$(getconf _NPROCESSORS_ONLN 2>/dev/null || true)"
+
+  printf '{\n'
+  printf '  "role": "%s",\n'    "$(jesc "$side")"
+  printf '  "version": "%s",\n' "$(jesc "$ver")"
+  printf '  "host": {\n%s\n'    "$_jbuf"
+  printf '  }\n}\n'
+}
+
 # --------------------------------------------------------------- راهنما --
 cmd_help() {
   cat <<EOF
@@ -128,6 +191,7 @@ $BRAND — تونل معکوس برای عبور از NAT و فیلترینگ
   token             ساخت توکن تصادفی ۳۲ بایتی
   check [سمت]       بررسی سلامت نصب و هشدارهای امنیتی
   panel             راهنمای بالا آوردن پنل وب
+  panel-meta [سمت]  ساخت panel.json پنل (نقش، نسخه، مشخصات میزبان)
   version           نسخه‌ی FarsHub و موتور اجرا
   support           راه ارتباط با پشتیبانی
   help              همین متن
@@ -358,6 +422,18 @@ cmd_install() {
 
   install -d -m755 "$LOG_DIR" "$STATE_DIR"
 
+  # پنل وب. فایل‌های موجود بازنویسی می‌شوند (کد است، نه کانفیگ) ولی چیزی که
+  # کاربر خودش اضافه کرده حذف نمی‌شود. devserver.py هرگز نباید سرو شود.
+  if [ -d "$repo/web" ]; then
+    install -d -m755 "$STATE_DIR/web"
+    cp -R "$repo/web/." "$STATE_DIR/web/"
+    rm -f "$STATE_DIR/web/devserver.py"
+    chmod -R u=rwX,go=rX "$STATE_DIR/web"
+    panel_json "$side" >"$STATE_DIR/web/panel.json"
+    chmod 644 "$STATE_DIR/web/panel.json"
+    say "  پنل    → $STATE_DIR/web"
+  fi
+
   if have_systemd; then
     unit=$(side_unit "$side")
     install -Dm644 "$repo/systemd/$unit" "$UNIT_DIR/$unit"
@@ -456,16 +532,32 @@ cmd_check() {
 cmd_panel() {
   say "$BRAND — پنل وب"
   say ''
-  say 'پنل FarsHub در پوشه‌ی web/ مخزن است: ایستا، دوزبانه، بدون CDN.'
+  say 'پنل FarsHub ایستا، دوزبانه و بدون CDN است. «farshub install» آن را در'
+  say "$STATE_DIR/web می‌گذارد، همراه یک panel.json که نقش این ماشین،"
+  say 'نسخه و مشخصات میزبان را نگه می‌دارد — موتور اجرا هیچ‌کدام را گزارش'
+  say 'نمی‌کند و بدون این فایل پنل «سمت اجرا نامعلوم» نشان می‌دهد.'
+  say ''
   say 'پنل داخلی موتور اجرا جدا است و برندینگ آپ‌استریم را دارد؛ آن را از'
   say 'بیرون باز نکنید (احراز هویت ندارد).'
   say ''
   say 'راه‌اندازی:'
   say "  1) در $CONF_DIR/*.toml مقدار web_port را روی یک پورت لوکال بگذارید"
-  say '  2) پوشه‌ی web/ را با nginx سرو کنید'
+  say "  2) $STATE_DIR/web را با nginx سرو کنید"
   say '  3) مسیرهای /data و /stats را به web_port پروکسی کنید'
   say ''
+  say 'اگر نقش را دستی عوض کردید:'
+  say "  farshub panel-meta server > $STATE_DIR/web/panel.json"
+  say ''
   say 'جزئیات و نمونه‌ی کانفیگ nginx: docs/PANEL.md'
+}
+
+# panel.json را روی stdout می‌سازد تا بتوان جایی که پنل سرو می‌شود ریدایرکتش کرد.
+cmd_panel_meta() {
+  side=${1:-}
+  [ -n "$side" ] || side=$(guess_side panel-meta)
+  case "$side" in server|s) side=server ;; client|c) side=client ;;
+    *) die "سمت نامعتبر: «$side»" ;; esac
+  panel_json "$side"
 }
 
 # ---------------------------------------------------------------- dispatch --
@@ -484,6 +576,7 @@ case "$cmd" in
   token)                   cmd_token ;;
   check|doctor)            cmd_check "$@" ;;
   panel)                   cmd_panel ;;
+  panel-meta|panel_meta)   cmd_panel_meta "$@" ;;
   version|-v|--version)    cmd_version ;;
   support)                 cmd_support ;;
   help|-h|--help)          cmd_help ;;

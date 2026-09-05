@@ -7,12 +7,15 @@
 web/index.html                 مارک‌آپ، همه‌ی رشته‌ها با data-i18n
 web/assets/css/panel.css       توکن‌های طراحی + استایل کامپوننت‌ها + دو تم
 web/assets/js/i18n.js          جدول زبان‌ها، دیکشنری fa/en، لایه‌ی فرمت اعداد
-web/assets/js/data.js          آداپتور /data → شکل واحد داخلی
+web/assets/js/data.js          آداپتور /stats + /data + panel.json → شکل واحد
 web/assets/js/sparkline.js     نمودار SVG خالص + بافر حلقه‌ای
 web/assets/js/app.js           رندر، polling، تم، زبان، فیلتر
 web/assets/fonts/              Vazirmatn + JetBrains Mono (woff2 + مجوز OFL)
 web/devserver.py               فقط برای توسعه — هرگز deploy نکنید
 ```
+
+یک فایل هم در مخزن نیست و هنگام نصب ساخته می‌شود: `panel.json` کنار
+`index.html` (بخش [«سه منبع داده»](#سه-منبع-داده)).
 
 ---
 
@@ -36,6 +39,8 @@ server {
   location = /stats { proxy_pass http://127.0.0.1:2060/stats; }
 }
 ```
+
+`panel.json` فایل ایستاست و همین `root` سروش می‌کند — قاعده‌ی جداگانه لازم ندارد.
 
 خلاصه‌ی همین مراحل را `farshub panel` هم می‌دهد.
 
@@ -61,78 +66,191 @@ ssh -N -L 8088:127.0.0.1:8088 root@SERVER_IP
 python web/devserver.py --port 8770
 ```
 
-روی `127.0.0.1` بایند می‌شود و `/data` را با اعداد ساختگی جواب می‌دهد، فقط برای
-دیدن ظاهر پنل. این سرور auth ندارد و برای production نیست.
+روی `127.0.0.1` بایند می‌شود و هر سه منبع را با داده‌ی ساختگی جواب می‌دهد، فقط
+برای دیدن ظاهر پنل. این سرور auth ندارد و برای production نیست. شکل پاسخ‌هایش
+عیناً مثل موتور واقعی است — از جمله همان **نامتقارنی** `/stats` و `/data` — و
+همین عمدی است: تا وقتی mock پاسخ‌های یکسان می‌داد، اشکالِ قبول‌کردن آرایه‌ی
+`/data` به‌جای آمار در پیش‌نمایش هرگز دیده نمی‌شد.
 
-برای دیدن رفتار پنل وقتی سرویس فیلدهای اختیاری را **نمی‌فرستد** (که روی
-موتور اجرای واقعی محتمل است)، از `?bare=1` استفاده کنید:
+سه سوئیچ برای دیدن حالت‌هایی که روی سرور واقعی محتمل‌اند:
 
 ```bash
-curl -s 'http://127.0.0.1:8770/data?bare=1' | head -c 300
+curl -s 'http://127.0.0.1:8770/stats?bare=1'   # سرویس فیلدهای اختیاری را نمی‌دهد
+curl -s 'http://127.0.0.1:8770/data?nosniffer=1'   # sniffer خاموش → ۴۰۴
+curl -s 'http://127.0.0.1:8770/panel.json?nometa=1' # نصب بدون panel.json
 ```
 
-در آن حالت مشخصات میزبان، نسخه، و مجموع بایت‌ها حذف می‌شوند و کارت مشخصات سرور
-به‌جای ستونی از `—` پیام خالی نشان می‌دهد.
+- `?bare=1` مشخصات میزبان، نسخه و مجموع بایت‌ها را حذف می‌کند؛ کارت مشخصات
+  سرور به‌جای ستونی از `—` پیام خالی نشان می‌دهد.
+- `?nosniffer=1` جدول پورت‌ها را به حالت خالی می‌برد با متنی که می‌گوید
+  `sniffer = true` لازم است.
+- `?nometa=1` نقش را «نامعلوم» می‌کند — همان چیزی که کاربر بدون `panel.json`
+  می‌بیند.
+
+---
+
+## سه منبع داده
+
+پنل از **سه** جا داده می‌گیرد و محتوایشان یکی نیست. این را باید دانست، چون
+شبیه‌بودن نامشان گمراه‌کننده است:
+
+| منبع | چه می‌دهد | اگر نبود |
+| --- | --- | --- |
+| `/stats` | آمار تونل و منابع سیستم؛ یک شیء تخت با کلیدهای camelCase | پنل offline می‌شود |
+| `/data` | با `sniffer = true` **آرایه‌ی** مصرف هر پورت؛ وگرنه HTML پنل داخلی موتور | جدول پورت‌ها خالی می‌ماند |
+| `panel.json` | فایل ایستا کنار پنل: نقش، نسخه، مشخصات میزبان | نقش «نامعلوم»، کارت مشخصات خالی |
+
+نمونه‌ی واقعی، از یک سرور در حال کار:
+
+```console
+$ curl -s http://127.0.0.1:2060/stats
+{"tunnelStatus":"Connected (TCPMux)","cpuUsage":"8.98%","ramUsage":"174.70 MB",
+ "diskUsage":"2.14 GB","swapUsage":"0 B","networkTraffic":"977.66 MB",
+ "uploadSpeed":"378.00 B/s","downloadSpeed":"2.66 KB/s",
+ "backhaulTraffic":"137.47 MB","sniffer":"Running","allgoroutines":"98",
+ "allConnections":"85"}
+
+$ curl -s http://127.0.0.1:2060/data
+[{"Port":8080,"ReadableUsage":"3.59 KB"},{"Port":10030,"ReadableUsage":"137.47 MB"}]
+```
+
+سه نکته که از همین خروجی درمی‌آید:
+
+1. **مقادیر از پیش فرمت‌شده‌اند**، نه عدد خام. `toNum()` رشته‌ها را باز می‌کند.
+   برچسب‌ها SI هستند ولی محاسبه پایه‌ی ۱۰۲۴ است — روی سرور تأیید شد: برای
+   ۲٫۱۴ GiB واقعیِ دیسک رشته‌ی `"2.14 GB"` می‌دهد. نرخ‌ها بایت بر ثانیه‌اند.
+2. **`/data` با sniffer روشن یک JSON کاملاً معتبر ولی بی‌ربط است.** پس ترتیب
+   امتحان‌کردن اندپوینت‌ها کافی نیست؛ `looksLikeStats()` شکل پاسخ را می‌سنجد و
+   آرایه را به‌عنوان آمار قبول نمی‌کند.
+3. **برای هر پورت فقط یک عدد ترکیبی می‌آید** (`ReadableUsage`)، نه تفکیک
+   ارسال/دریافت و نه مقصد و تعداد اتصال. جدول در آن حالت به‌جای دو ستون خالی
+   «ارسال/دریافت»، یک ستون «ترافیک» نشان می‌دهد.
+
+### `panel.json`
+
+موتور اجرا **نقش خودش را اعلام نمی‌کند** — نه `server`/`client` و نه معادلی در
+`/stats`. نام میزبان، سیستم‌عامل، کرنل و تعداد هسته را هم نمی‌دهد. پنل عمداً
+حدس نمی‌زند (نقشِ غلط بدتر از نقشِ نامعلوم است)، پس همین چند فقره از یک فایل
+ایستا خوانده می‌شود. `farshub install` آن را می‌سازد؛ دستی هم می‌شود:
+
+```bash
+farshub panel-meta server > /var/lib/farshub/web/panel.json
+```
+
+```json
+{
+  "role": "server",
+  "version": "FarsHub Tunnel 1.0.1 — موتور v1.0.2",
+  "host": {
+    "name": "suitable-purple",
+    "ip": "62.60.193.137",
+    "bind": "0.0.0.0:3080",
+    "os": "Ubuntu 24.04.4 LTS",
+    "kernel": "6.8.0-88-generic",
+    "arch": "x86_64",
+    "cores": 1
+  }
+}
+```
+
+- همه‌ی کلیدها اختیاری‌اند و هر چه روی آن ماشین خوانده نشود **نوشته نمی‌شود**،
+  نه اینکه رشته‌ی خالی بگیرد.
+- `bind` فقط سمت server نوشته می‌شود؛ کلاینت `remote_addr` دارد که «Bind» نیست.
+- این فایل فقط جای فیلدهای **غایب** را پر می‌کند. هر چه سرویس زنده بدهد
+  اولویت دارد، پس مثلاً `version` موتور بر `version` این فایل مقدم است.
+- یک بار در هر بار باز شدن صفحه خوانده می‌شود، نه هر ۲ ثانیه، و نتیجه — حتی
+  ۴۰۴ — کش می‌شود. مسیرش نسبی است (`panel.json`)، پس سرو کردن پنل زیر یک
+  زیرمسیر هم کار می‌کند.
+- توکن و رمز داخلش نیست، ولی مشخصات میزبان است؛ پشت همان `auth_basic` پنل
+  بمانَد.
 
 ---
 
 ## فرض‌های `data.js` روی شکل پاسخ
 
-شکل خروجی `/data` بین نسخه‌های آپ‌استریم ثابت نیست، پس `data.js` برای هر فیلد
+شکل خروجی موتور بین نسخه‌های آپ‌استریم ثابت نیست، پس `data.js` برای هر فیلد
 چند نام محتمل را امتحان می‌کند و **اولین مقدار عددی معتبر** را برمی‌دارد. هر چه
 پیدا نشود `null` می‌ماند و پنل `—` نشان می‌دهد — عدد جعلی ساخته نمی‌شود.
 
+نام‌های ستون دوم به همان ترتیب امتحان می‌شوند؛ آنچه موتور فعلی واقعاً می‌فرستد
+**پررنگ** است. سطرهای بی‌پررنگ یعنی این نسخه آن فیلد را نمی‌دهد.
+
 | فیلد داخلی | نام‌های پذیرفته‌شده در JSON |
 | --- | --- |
-| `state` | `status`, `state`, `tunnel_status` |
-| `role` | `role`, `mode`, `side` |
-| `transport` | `transport`, `protocol` |
-| `txRate` | `tx_rate`, `upload_speed`, `up_bps`, `sent_rate` |
-| `rxRate` | `rx_rate`, `download_speed`, `down_bps`, `recv_rate` |
+| `state` | `status`, `state`, `tunnel_status`, **`tunnelStatus`** |
+| `role` | `role`, `mode`, `side` → از `panel.json` |
+| `transport` | `transport`, `protocol` → **داخل پرانتز `tunnelStatus`** |
+| `txRate` | `tx_rate`, `upload_speed`, `up_bps`, `sent_rate`, **`uploadSpeed`** |
+| `rxRate` | `rx_rate`, `download_speed`, `down_bps`, `recv_rate`, **`downloadSpeed`** |
 | `latency` | `latency`, `ping`, `rtt`, `latency_ms` |
-| `conns` | `connections`, `active_connections`, `conn_count` |
-| `goroutines` | `goroutines`, `num_goroutine`, `go_routines` |
+| `conns` | `connections`, `active_connections`, `conn_count`, **`allConnections`** |
+| `goroutines` | `goroutines`, `num_goroutine`, `go_routines`, **`allgoroutines`** |
 | `uptime` | `uptime`, `uptime_seconds`, `started_seconds` |
-| `cpu` | `cpu`, `cpu_percent`, `cpu_usage` |
-| `ram` | `ram`, `memory_percent`, `mem_percent`, `memory.used_percent` |
-| `disk` | `disk`, `disk_percent`, `disk.used_percent` |
-| `swap` | `swap`, `swap_percent`, `swap.used_percent` |
-| `version` | `version`, `build` |
-| `ports[]` | `ports`, `usage`, `connections`, `data` |
+| `cpu` | `cpu`, `cpu_percent`, `cpu_usage`, **`cpuUsage`** |
+| `ram` / `ramUsed` | `memory_percent` … / `memory.used`, **`ramUsage`** |
+| `disk` / `diskUsed` | `disk_percent` … / `disk.used`, **`diskUsage`** |
+| `swap` / `swapUsed` | `swap_percent` … / `swap.used`, **`swapUsage`** |
+| `totalTraffic` | `total_traffic`, **`backhaulTraffic`**, `networkTraffic` |
+| `version` | `version`, `build` → یا از `panel.json` |
+| `ports[]` | **از اندپوینت `/data`**؛ یا `ports`/`usage`/`connections`/`data` داخل آمار |
 | `events[]` | `events`, `logs`, `log` |
 
-داخل هر آیتم `ports[]`: `port`/`local_port`/`name`، `target`/`remote`/
-`remote_addr`/`destination`، `connections`/`conns`/`active`/`count`،
-`upload`/`up`/`tx`/`sent`/`bytes_sent`، و متناظر دانلود.
+`transport` فیلد جدا ندارد: موتور وضعیت را `"Connected (TCPMux)"` می‌دهد و
+`data.js` محتوای پرانتز را بیرون می‌کشد.
+
+`totalTraffic` سه لایه دارد: `backhaulTraffic` (ترافیک خود تونل) → `networkTraffic`
+(کل ماشین) → مجموع مصرف پورت‌ها. `networkTraffic` بزرگ‌تر از تونل است چون همه‌ی
+ترافیک ماشین را می‌شمارد، پس عمداً دوم است نه اول.
+
+داخل هر آیتم `ports[]`:
+
+| فیلد | نام‌های پذیرفته‌شده |
+| --- | --- |
+| `port` | `port`, **`Port`**, `local_port`, `name` |
+| `traffic` | `Usage`, `usage`, **`ReadableUsage`**, `readable_usage`, `traffic` |
+| `up` / `down` | `upload`/`up`/`tx`/`sent`/`bytes_sent` و متناظر دانلود |
+| `target` | `target`, `remote`, `remote_addr`, `destination` |
+| `conns` | `connections`, `conns`, `active`, `count` |
+| `rate` | `rate`, `bandwidth`, `bps`, `speed` |
+
+از این شش فیلد، موتور فعلی فقط دو تای اول را می‌دهد. `renderPorts()` بر همین
+اساس ستون‌ها را عوض می‌کند: اگر هیچ ردیفی `up`/`down` نداشت، به‌جای دو ستون
+«ارسال» و «دریافت» یک ستون «ترافیک» می‌گذارد و «سهم» را از همان حساب می‌کند.
+
+> پورتی که هیچ بایتی جابه‌جا نکرده باشد در `/data` **نمی‌آید** — sniffer فقط
+> پورت‌های فعال را ثبت می‌کند. نبودن یک ردیف به‌تنهایی یعنی «بی‌مصرف»، نه
+> «کار نمی‌کند»؛ برای سنجش فورواردینگ از `tcpdump` روی پورت مقصد استفاده کنید.
 
 ### مشخصات میزبان (`host.*`)
 
-کارت «مشخصات سرور» این فیلدها را مصرف می‌کند. برای هر کدام **اول** داخل شیء
-تودرتو (`server` یا `host` یا `system` یا `machine` یا `node`) و بعد در ریشه‌ی
-پاسخ گشته می‌شود، پس هر دو شکل زیر کار می‌کند:
+کارت «مشخصات سرور» این فیلدها را مصرف می‌کند. برای هر کدام سه جا به ترتیب گشته
+می‌شود: **اول** شیء تودرتوی پاسخ (`server` یا `host` یا `system` یا `machine` یا
+`node`)، **بعد** ریشه‌ی پاسخ، و **آخر** `panel.json`. پس هر سه شکل زیر کار می‌کند:
 
 ```json
 { "server": { "hostname": "fra-edge-01", "ip": "203.0.113.42" } }
 { "hostname": "fra-edge-01", "server_ip": "203.0.113.42" }
+{ "host": { "name": "fra-edge-01", "ip": "203.0.113.42" } }   ← panel.json
 ```
 
-| فیلد داخلی | نام‌های پذیرفته‌شده (تودرتو / ریشه) |
+| فیلد داخلی | نام‌های پذیرفته‌شده (تودرتو / ریشه / `panel.json`) |
 | --- | --- |
-| `host.name` | `hostname`, `name`, `host` / `hostname`, `host_name`, `server_name` |
-| `host.ip` | `ip`, `public_ip`, `address` / `ip`, `server_ip`, `public_ip`, `bind_ip` |
-| `host.location` | `location`, `country`, `region`, `datacenter` / همان‌ها |
-| `host.os` | `os`, `platform`, `distro`, `os_name` / `os`, `platform`, `distro` |
-| `host.kernel` | `kernel`, `kernel_version`, `release` / `kernel`, `kernel_version` |
-| `host.arch` | `arch`, `architecture`, `goarch` / همان‌ها |
-| `host.cores` | `cores`, `cpu_cores`, `cpus`, `num_cpu` / همان‌ها |
-| `host.bind` | `bind_addr`, `bind`, `listen` / + `listen_addr` |
-| `host.boot` | `boot_time`, `boot`, `uptime_system` / `boot_time`, `system_uptime`, `host_uptime` |
+| `host.name` | `hostname`, `name`, `host` / `hostname`, `host_name`, `server_name` / `name`, `hostname` |
+| `host.ip` | `ip`, `public_ip`, `address` / `ip`, `server_ip`, `public_ip`, `bind_ip` / `ip`, `public_ip` |
+| `host.location` | `location`, `country`, `region`, `datacenter` / همان‌ها / همان‌ها |
+| `host.os` | `os`, `platform`, `distro`, `os_name` / `os`, `platform`, `distro` / همان‌ها |
+| `host.kernel` | `kernel`, `kernel_version`, `release` / `kernel`, `kernel_version` / همان‌ها |
+| `host.arch` | `arch`, `architecture`, `goarch` / همان‌ها / `arch`, `architecture` |
+| `host.cores` | `cores`, `cpu_cores`, `cpus`, `num_cpu` / همان‌ها / `cores`, `cpu_cores`, `cpus` |
+| `host.bind` | `bind_addr`, `bind`, `listen` / + `listen_addr` / `bind`, `bind_addr`, `listen` |
+| `host.boot` | `boot_time`, `boot`, `uptime_system` / `boot_time`, `system_uptime`, `host_uptime` / — |
 
-**همه‌ی این‌ها اختیاری‌اند و آپ‌استریم ممکن است هیچ‌کدام را نفرستد.** برخلاف
-بقیه‌ی پنل که برای مقدار غایب `—` می‌گذارد، این کارت ردیف‌های بی‌مقدار را
-**حذف** می‌کند تا ستونی از `—` نسازد؛ اگر هیچ فیلدی نیامد، کارت حالت خالی
-نشان می‌دهد. حافظه‌ی کل و فضای کل از همان `memory.total`/`disk.total` گیج‌ها
-می‌آیند، نه از `host`.
+**همه‌ی این‌ها اختیاری‌اند و موتور اجرا هیچ‌کدام را نمی‌فرستد** — روی نصب
+معمولی هر نه فیلد از `panel.json` می‌آیند. برخلاف بقیه‌ی پنل که برای مقدار غایب
+`—` می‌گذارد، این کارت ردیف‌های بی‌مقدار را **حذف** می‌کند تا ستونی از `—`
+نسازد؛ اگر هیچ فیلدی نیامد، کارت حالت خالی نشان می‌دهد. حافظه‌ی کل و فضای کل از
+`memory.total`/`disk.total` گیج‌ها می‌آیند، نه از `host` — و موتور فعلی آن‌ها
+را هم نمی‌دهد، پس متر به‌جای درصد، حجم مصرف‌شده را نشان می‌دهد.
 
 `state` با regex دسته‌بندی می‌شود: `up | degraded | down | connecting | unknown`.
 مقادیر بایت بر ثانیه فرض می‌شوند و در UI به bit/s تبدیل می‌شوند.
@@ -161,8 +279,9 @@ curl -s 'http://127.0.0.1:8770/data?bare=1' | head -c 300
 ### «این دستگاه کدام سمت تونل است؟»
 
 در معماری تونل معکوس **کلاینت همیشه dial می‌کند و سرور همیشه Listen**، که
-برعکس انتظار رایج است — پس پنل این را صریح نشان می‌دهد. `sideOf()` در `app.js`
-رشته‌ی `role` سرویس را دسته‌بندی می‌کند:
+برعکس انتظار رایج است — پس پنل این را صریح نشان می‌دهد. منبعش `panel.json` است،
+چون موتور اجرا نقش خودش را گزارش نمی‌کند. `sideOf()` در `app.js` رشته‌ی `role`
+را دسته‌بندی می‌کند:
 
 ```js
 /server|serve|remote|edge|kharej/  → 'server'
@@ -173,7 +292,13 @@ curl -s 'http://127.0.0.1:8770/data?bare=1' | head -c 300
 نتیجه سه نمایش هم‌زمان را می‌راند، همه از یک منبع: چیپ رنگی کنار وضعیت تونل
 (سبز = سرور، بنفش = کلاینت) با تولتیپ توضیحی، نشان «همین دستگاه» و حلقه‌ی
 accent روی گره‌ی متناظر در نمودار سیم، و نقطه‌ی رنگی کنار «نقش» در ribbon.
-اگر نقش نامعلوم بود هر سه به حالت خنثی می‌روند — حدس زده نمی‌شود.
+اگر نقش نامعلوم بود هر سه به حالت خنثی می‌روند و چیپ «سمت اجرا نامعلوم»
+می‌شود — حدس زده نمی‌شود، چون نقشِ غلط بدتر از نقشِ نامعلوم است. دیدن آن پیام
+یعنی `panel.json` نیست یا `role` ندارد:
+
+```bash
+farshub panel-meta server > /var/lib/farshub/web/panel.json
+```
 
 ### دکمه‌ی رونوشت در مشخصات سرور
 
@@ -193,7 +318,12 @@ accent روی گره‌ی متناظر در نمودار سیم، و نقطه‌
 
 ## رفتار زمان اجرا
 
-- هر ۲ ثانیه `/data` و اگر جواب نداد `/stats` (timeout ۴ ثانیه با `AbortController`).
+- هر ۲ ثانیه `/stats` (آمار) و `/data` (مصرف پورت‌ها)، هر کدام با timeout ۴
+  ثانیه و `AbortController`. ترتیب `/stats` **اول** است و پاسخ با
+  `looksLikeStats()` سنجیده می‌شود؛ نبودن `/data` خطا نیست و فقط جدول پورت‌ها را
+  خالی می‌گذارد.
+- `panel.json` یک بار در هر بار باز شدن صفحه خوانده می‌شود و نتیجه — حتی ۴۰۴ —
+  کش می‌شود.
 - یک شکست ⇒ برچسب «داده قدیمی»؛ دو شکست پیاپی ⇒ «اتصال به سرویس قطع است» و
   وضعیت تونل نامعلوم. آخرین داده‌ی سالم روی صفحه می‌ماند.
 - تب پنهان ⇒ polling متوقف می‌شود (برچسب «متوقف»)، با برگشت به تب ادامه می‌یابد.

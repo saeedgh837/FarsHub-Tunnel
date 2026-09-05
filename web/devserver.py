@@ -42,6 +42,20 @@ EVENTS = [
     ("info", "channel signal received, initiating tunnel dialer"),
 ]
 
+# panel.json — what `farshub install` writes. The engine reports none of this,
+# so without the file the panel shows "سمت اجرا نامعلوم" and an empty specs card.
+PANEL_META = {
+    "role": "server",
+    "version": "FarsHub Tunnel 1.0.1",
+    "host": {
+        "bind": "0.0.0.0:3080",
+        "os": "Debian GNU/Linux 12 (bookworm)",
+        "kernel": "6.1.0-18-amd64",
+        "arch": "x86_64",
+        "cores": 4,
+    },
+}
+
 
 def human(n):
     """Format like the engine does: base 1024, SI labels ("2.97 KB")."""
@@ -81,9 +95,9 @@ def snapshot(bare=False):
     conns = sum(max(0, int(48 * (0.42 / (i + 1)))) for i in range(len(PORTS)))
 
     return {
-        "status": "connected",
-        "role": "server",
-        "transport": "tcpmux",
+        # موتور ترانسپورت را داخل همین رشته می‌دهد، فیلد جدا ندارد — و «نقش» را
+        # هرگز نمی‌دهد. هر دو عمداً مثل واقعیت.
+        "status": "Connected (TCPMux)",
         "version": None if bare else "0.6.5",
         # مشخصات میزبان — پنل اینها را از server/host/system هم می‌خواند
         "server": None if bare else {
@@ -141,11 +155,19 @@ class Handler(SimpleHTTPRequestHandler):
                 self.send_error(404, "sniffer disabled")
                 return
             return self._json(sniffer_usage())
+        if path == "/panel.json":
+            # ?nometa=1 → نصبی که panel.json ندارد؛ نقش «نامعلوم» می‌شود
+            if "nometa=1" in query:
+                self.send_error(404, "no panel.json")
+                return
+            return self._json(PANEL_META)
         super().do_GET()
 
     def log_message(self, fmt, *args):
-        first = args[0] if args else ""
-        if "/data" not in first and "/stats" not in first:
+        # args[0] is the request line for access logs but the status *code* for
+        # log_error(), so it must be coerced — send_error() crashed otherwise.
+        first = str(args[0]) if args else ""
+        if not any(p in first for p in ("/data", "/stats", "/panel.json")):
             super().log_message(fmt, *args)
 
 
