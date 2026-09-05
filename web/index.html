@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="fa-IR" dir="rtl" data-theme="dark" data-locale="fa">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FarsHub — پایش تونل</title>
+<meta name="color-scheme" content="dark light">
+<meta name="description" content="پنل پایش تونل FarsHub">
+<link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml">
+<link rel="preload" href="assets/fonts/Vazirmatn-Variable.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="assets/css/panel.css">
+<script>
+  /* تم را پیش از رندر ست می‌کنیم تا فلش سفید رخ ندهد */
+  (function () {
+    try {
+      var t = localStorage.getItem('farshub.theme');
+      if (!t) t = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+      document.documentElement.dataset.theme = t;
+      var l = localStorage.getItem('farshub.lang');
+      if (l === 'en') {
+        var h = document.documentElement;
+        h.lang = 'en'; h.dir = 'ltr'; h.dataset.locale = 'en';
+      }
+    } catch (e) {}
+  })();
+</script>
+</head>
+<body>
+
+<a class="skip-link" href="#main" data-i18n="a11y.skip">رفتن به محتوای اصلی</a>
+
+<div class="shell">
+
+  <header class="topbar">
+    <div class="brand">
+      <svg class="brand__mark" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+        <path d="M4 16h7l3-7 4 14 3-7h7" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <div>
+        <div class="brand__name">FarsHub</div>
+        <div class="brand__tagline" data-i18n="brand.tagline">پایش تونل</div>
+      </div>
+    </div>
+
+    <div class="controls">
+      <span class="feed" id="feed" data-state="live" role="status" aria-live="polite">
+        <span class="feed__dot" aria-hidden="true"></span>
+        <span data-feed-label data-i18n="meta.live">زنده</span>
+      </span>
+
+      <button class="ctl" id="lang-btn" type="button">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.7"/>
+          <path d="M3 12h18M12 3c2.5 2.6 2.5 15.4 0 18M12 3c-2.5 2.6-2.5 15.4 0 18"
+                stroke="currentColor" stroke-width="1.7"/>
+        </svg>
+        <span id="lang-label">English</span>
+      </button>
+
+      <button class="ctl" id="theme-btn" type="button">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" data-icon-dark>
+          <path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5Z"
+                stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>
+        </svg>
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" data-icon-light hidden>
+          <circle cx="12" cy="12" r="4.2" stroke="currentColor" stroke-width="1.7"/>
+          <path d="M12 3v2m0 14v2M3 12h2m14 0h2M5.6 5.6l1.4 1.4m10 10 1.4 1.4m0-12.8-1.4 1.4m-10 10L5.6 18.4"
+                stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+        </svg>
+        <span id="theme-label">روشن</span>
+      </button>
+    </div>
+  </header>
+
+  <main id="main">
+
+    <!-- ============ SIGNATURE: the live wire ============ -->
+    <section class="link" id="link" data-state="up" aria-labelledby="link-title">
+      <div class="link__state">
+        <span class="link__badge">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" aria-hidden="true">
+            <path d="M5 12.5l4.5 4.5L19 7.5" stroke="currentColor" stroke-width="2.2"
+                  stroke-linecap="round" stroke-linejoin="round" data-badge-ok/>
+          </svg>
+          <span data-slot="state" data-i18n="state.up">تونل برقرار</span>
+        </span>
+
+        <span class="link__side" data-side="unknown" title="" data-slot-title="side-hint">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" aria-hidden="true">
+            <path d="M12 21s7-4.6 7-10V5.6L12 3 5 5.6V11c0 5.4 7 10 7 10Z" stroke="currentColor"
+                  stroke-width="1.7" stroke-linejoin="round"/>
+          </svg>
+          <span data-slot="side">سمت اجرا نامعلوم</span>
+        </span>
+      </div>
+
+      <h1 class="link__headline" id="link-title">
+        <span class="visually-hidden" data-i18n="a11y.heroTitle">پنل پایش تونل FarsHub — گذردهی لحظه‌ای</span>
+        <span data-slot="throughput">—</span>
+        <span class="tile__unit" data-slot="throughput-unit"></span>
+      </h1>
+      <p class="link__sub">
+        <span data-i18n="kpi.hint.throughput">مجموع ارسال و دریافت در لحظه</span>
+      </p>
+
+      <div class="wire">
+        <div class="node" data-node="client">
+          <span class="node__icon">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <rect x="3" y="4" width="18" height="12" rx="2" stroke="currentColor" stroke-width="1.7"/>
+              <path d="M8 20h8M12 16v4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+            </svg>
+          </span>
+          <span class="node__name" data-i18n="node.client">کلاینت</span>
+          <span class="node__here" data-i18n="node.self">همین دستگاه</span>
+          <span class="node__sub" data-i18n="node.client.sub">پشت NAT — به سرور وصل می‌شود</span>
+        </div>
+
+        <div class="rails">
+          <div class="rail rail--up" data-rail="up" data-idle="false">
+            <span class="rail__label">
+              <span data-i18n="link.tx">ارسال به سرور</span>
+              <b class="num" data-slot="tx">—</b>
+              <span class="tile__unit" data-slot="tx-unit"></span>
+            </span>
+          </div>
+
+          <div class="rail__mid">
+            <span class="rail__chip">
+              <span data-i18n="link.transport">ترانسپورت</span>
+              <b class="mono" data-slot="transport">—</b>
+            </span>
+            <span class="rail__chip">
+              <span data-i18n="link.latency">تأخیر</span>
+              <b class="num" data-slot="latency-chip">—</b>
+            </span>
+          </div>
+
+          <div class="rail rail--down" data-rail="down" data-idle="false">
+            <span class="rail__label">
+              <span data-i18n="link.rx">دریافت از سرور</span>
+              <b class="num" data-slot="rx">—</b>
+              <span class="tile__unit" data-slot="rx-unit"></span>
+            </span>
+          </div>
+        </div>
+
+        <div class="node" data-node="server">
+          <span class="node__icon">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <rect x="3" y="3" width="18" height="7" rx="1.6" stroke="currentColor" stroke-width="1.7"/>
+              <rect x="3" y="14" width="18" height="7" rx="1.6" stroke="currentColor" stroke-width="1.7"/>
+              <path d="M7 6.5h.01M7 17.5h.01" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+            </svg>
+          </span>
+          <span class="node__name" data-i18n="node.server">سرور</span>
+          <span class="node__here" data-i18n="node.self">همین دستگاه</span>
+          <span class="node__sub" data-i18n="node.server.sub">کاربران به این سمت وصل می‌شوند</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ runtime ribbon — جای فوتر قبلی ============ -->
+    <section class="ribbon" aria-label="وضعیت اجرا">
+      <div class="ribbon__item">
+        <span class="ribbon__label tracked" data-i18n="meta.role">نقش</span>
+        <span class="ribbon__value">
+          <span class="ribbon__dot" data-slot-side-dot aria-hidden="true"></span>
+          <span data-slot="m-role">—</span>
+        </span>
+      </div>
+      <div class="ribbon__item">
+        <span class="ribbon__label tracked" data-i18n="meta.transport">ترانسپورت</span>
+        <span class="ribbon__value mono" data-slot="m-transport">—</span>
+      </div>
+      <div class="ribbon__item">
+        <span class="ribbon__label tracked" data-i18n="kpi.uptime">مدت کارکرد</span>
+        <span class="ribbon__value" data-slot="m-uptime">—</span>
+      </div>
+      <div class="ribbon__item">
+        <span class="ribbon__label tracked" data-i18n="kpi.goroutines">گوروتین</span>
+        <span class="ribbon__value num" data-slot="m-goroutines">—</span>
+      </div>
+      <div class="ribbon__item">
+        <span class="ribbon__label tracked" data-i18n="meta.version">نسخه</span>
+        <span class="ribbon__value mono" data-slot="m-version">—</span>
+      </div>
+      <div class="ribbon__item ribbon__item--time">
+        <span class="ribbon__label tracked" data-i18n="meta.updated">آخرین بروزرسانی</span>
+        <span class="ribbon__value num" data-slot="m-updated">—</span>
+      </div>
+    </section>
+
+    <!-- ============ KPI tiles ============ -->
+    <section class="tiles" aria-label="شاخص‌های کلیدی">
+      <article class="tile">
+        <h2 class="tile__head">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M3 17l5-6 4 3 4-7 5 5" stroke="currentColor" stroke-width="1.8"
+                  stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <span data-i18n="kpi.throughput">گذردهی لحظه‌ای</span>
+        </h2>
+        <p class="tile__value">
+          <span class="num" data-slot="k-throughput">—</span>
+          <span class="tile__unit" data-slot="k-throughput-unit"></span>
+        </p>
+        <svg class="tile__spark" data-spark="throughput" viewBox="0 0 100 30"
+             preserveAspectRatio="none" role="img" aria-label="روند گذردهی"></svg>
+      </article>
+
+      <article class="tile">
+        <h2 class="tile__head">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M8 7h8a4 4 0 0 1 0 8H9a4 4 0 0 0 0 8h7" stroke="currentColor"
+                  stroke-width="1.8" stroke-linecap="round"/>
+            <circle cx="7" cy="7" r="2.4" stroke="currentColor" stroke-width="1.8"/>
+          </svg>
+          <span data-i18n="kpi.connections">اتصال فعال</span>
+        </h2>
+        <p class="tile__value"><span class="num" data-slot="k-conns">—</span></p>
+        <p class="tile__hint" data-i18n="kpi.hint.connections">اتصال‌های باز روی همه‌ی پورت‌ها</p>
+      </article>
+
+      <article class="tile">
+        <h2 class="tile__head">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.8"/>
+            <path d="M12 7.5V12l3 2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          </svg>
+          <span data-i18n="kpi.latency">تأخیر تونل</span>
+        </h2>
+        <p class="tile__value">
+          <span class="num" data-slot="k-latency">—</span>
+          <span class="tile__unit" data-i18n="unit.ms">میلی‌ثانیه</span>
+        </p>
+        <svg class="tile__spark" data-spark="latency" viewBox="0 0 100 30"
+             preserveAspectRatio="none" role="img" aria-label="روند تأخیر"></svg>
+      </article>
+
+      <article class="tile">
+        <h2 class="tile__head">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M12 3v13m0 0 4.5-4.5M12 16l-4.5-4.5" stroke="currentColor"
+                  stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M4 20h16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          </svg>
+          <span data-i18n="kpi.total">ترافیک کل</span>
+        </h2>
+        <p class="tile__value">
+          <span class="num" data-slot="k-total">—</span>
+          <span class="tile__unit" data-slot="k-total-unit"></span>
+        </p>
+        <p class="tile__hint" data-i18n="kpi.hint.total">از زمان آخرین راه‌اندازی سرویس</p>
+      </article>
+    </section>
+
+    <!-- ============ per-port traffic ============ -->
+    <section class="card" aria-labelledby="ports-title">
+      <div class="card__head">
+        <div class="card__titles">
+          <h2 class="card__title" id="ports-title" data-i18n="ports.title">پورت‌ها</h2>
+          <p class="card__subtitle" data-i18n="ports.subtitle">ترافیک به تفکیک پورت</p>
+        </div>
+        <label class="search">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <circle cx="11" cy="11" r="6.5" stroke="currentColor" stroke-width="1.8"/>
+            <path d="m16 16 4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          </svg>
+          <span class="visually-hidden" data-i18n="ports.search">جست‌وجوی پورت یا مقصد</span>
+          <input type="search" id="port-search" data-i18n-placeholder="ports.search"
+                 placeholder="جست‌وجوی پورت یا مقصد">
+        </label>
+      </div>
+      <div class="card__body card__body--flush">
+        <div class="table-scroll" id="ports-wrap"><!-- در app.js پر می‌شود --></div>
+      </div>
+    </section>
+
+    <!-- ============ system resources ============ -->
+    <section class="card" aria-labelledby="sys-title">
+      <div class="card__head">
+        <div class="card__titles">
+          <h2 class="card__title" id="sys-title" data-i18n="sys.title">منابع سیستم</h2>
+        </div>
+      </div>
+      <div class="card__body">
+        <div class="meters" id="meters"><!-- در app.js پر می‌شود --></div>
+      </div>
+    </section>
+
+    <!-- ============ events ============ -->
+    <section class="card" aria-labelledby="log-title">
+      <div class="card__head">
+        <div class="card__titles">
+          <h2 class="card__title" id="log-title" data-i18n="log.title">رویدادها</h2>
+        </div>
+      </div>
+      <div class="card__body card__body--flush">
+        <div class="events" id="events"><!-- در app.js پر می‌شود --></div>
+      </div>
+    </section>
+
+    <!-- ============ server identity + support ============ -->
+    <div class="split">
+      <section class="card" aria-labelledby="srv-title">
+        <div class="card__head">
+          <div class="card__titles">
+            <h2 class="card__title" id="srv-title" data-i18n="srv.title">مشخصات سرور</h2>
+            <p class="card__subtitle" data-i18n="srv.subtitle">همان دستگاهی که این پنل روی آن اجرا می‌شود</p>
+          </div>
+        </div>
+        <div class="card__body card__body--flush">
+          <dl class="specs" id="specs"><!-- در app.js پر می‌شود --></dl>
+        </div>
+      </section>
+
+      <section class="support" aria-labelledby="sup-title">
+        <span class="support__glyph" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <path d="M21.9 4.3 19 20.1c-.2 1-.8 1.2-1.6.8l-4.4-3.3-2.2 2.1c-.2.2-.4.4-.9.4l.3-4.5 8.2-7.4c.4-.3-.1-.5-.6-.2L7.7 13.4l-4.4-1.4c-.9-.3-1-1 .2-1.5l17-6.6c.8-.3 1.5.2 1.4 1z"/>
+          </svg>
+        </span>
+        <h2 class="support__title" id="sup-title" data-i18n="sup.title">پشتیبانی</h2>
+        <p class="support__body" data-i18n="sup.body">برای راه‌اندازی، خرید سرور یا رفع اشکال تونل در تلگرام پیام بدهید.</p>
+        <a class="support__cta" href="https://t.me/vpsfa" target="_blank" rel="noopener noreferrer">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M21.9 4.3 19 20.1c-.2 1-.8 1.2-1.6.8l-4.4-3.3-2.2 2.1c-.2.2-.4.4-.9.4l.3-4.5 8.2-7.4c.4-.3-.1-.5-.6-.2L7.7 13.4l-4.4-1.4c-.9-.3-1-1 .2-1.5l17-6.6c.8-.3 1.5.2 1.4 1z"/>
+          </svg>
+          <span data-i18n="sup.cta">پیام در تلگرام</span>
+        </a>
+        <span class="support__handle mono">t.me/vpsfa</span>
+      </section>
+    </div>
+
+  </main>
+
+</div>
+
+<script type="module" src="assets/js/app.js"></script>
+</body>
+</html>

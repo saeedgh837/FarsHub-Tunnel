@@ -1,0 +1,29 @@
+[Unit]
+Description=FarsHub Tunnel (Client)
+Documentation=file:/etc/farshub/client.toml
+After=network-online.target
+Wants=network-online.target
+
+# جلوگیری از restart loop بی‌نهایت در خطای دائمی (توکن غلط، آدرس اشتباه)
+StartLimitIntervalSec=300
+StartLimitBurst=10
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/farshub _exec client
+WorkingDirectory=/var/lib/farshub
+SyslogIdentifier=farshub
+Restart=always
+RestartSec=3
+LimitNOFILE=1048576
+
+# ---- Hardening ----
+# توضیح کامل در farshub-server.service — موتور اجرا در استارت‌آپ sysctl سیستم
+# را تیون می‌کند، پس ProtectKernelTunables / ProtectSystem=strict فعال نشده‌اند.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ReadWritePaths=/var/log/farshub /var/lib/farshub
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,495 @@
+#!/bin/sh
+# ==========================================================================
+#  FarsHub Tunnel — CLI
+#
+#  تنها چیزی که کاربر تایپ می‌کند. موتور اجرا `farshub-core` است (build
+#  آپ‌استریم، دست‌نخورده) و این پوسته آن را صدا می‌زند. هدف: نام و پیام‌های
+#  FarsHub در همه‌ی خروجی‌های کاربرپسند، بدون هیچ تغییری در باینری.
+#
+#  POSIX sh — به bash نیاز ندارد.
+# ==========================================================================
+set -eu
+
+CLI_VERSION='1.0.0'
+BRAND='FarsHub Tunnel'
+SUPPORT='https://t.me/vpsfa'
+
+CONF_DIR="${FARSHUB_CONF_DIR:-/etc/farshub}"
+LIBEXEC="${FARSHUB_LIBEXEC:-/usr/local/libexec/farshub}"
+BIN_DIR="${FARSHUB_BIN_DIR:-/usr/local/bin}"
+UNIT_DIR="${FARSHUB_UNIT_DIR:-/etc/systemd/system}"
+# این دو در configs و یونیت‌های systemd هم آمده‌اند؛ متغیر بودنشان فقط برای
+# تست نصب در یک prefix موقت است.
+LOG_DIR="${FARSHUB_LOG_DIR:-/var/log/farshub}"
+STATE_DIR="${FARSHUB_STATE_DIR:-/var/lib/farshub}"
+
+self_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+
+die()  { printf 'farshub: %s\n' "$1" >&2; exit "${2:-1}"; }
+say()  { printf '%s\n' "$*"; }
+
+# ------------------------------------------------------------- موتور اجرا --
+# ترتیب جست‌وجو: متغیر محیطی، libexec (محل نصب)، کنار همین اسکریپت (مخزن
+# باز‌نشده)، و در آخر PATH.
+find_core() {
+  if [ -n "${FARSHUB_CORE:-}" ]; then
+    [ -x "$FARSHUB_CORE" ] || die "FARSHUB_CORE اجرایی نیست: $FARSHUB_CORE"
+    printf '%s\n' "$FARSHUB_CORE"; return
+  fi
+  for c in "$LIBEXEC/farshub-core" "$self_dir/farshub-core" \
+           "$BIN_DIR/farshub-core"; do
+    [ -x "$c" ] && { printf '%s\n' "$c"; return; }
+  done
+  c=$(command -v farshub-core 2>/dev/null) && { printf '%s\n' "$c"; return; }
+  die 'موتور اجرا پیدا نشد. اول «farshub install» را اجرا کنید.'
+}
+
+# نسخه‌ی موتور، پاک‌شده از برندینگ و لینک فروشنده‌ی آپ‌استریم.
+core_version() {
+  core=$(find_core)
+  "$core" -v 2>/dev/null |
+    sed -e 's#https\{0,1\}://[^[:space:]]*##g' \
+        -e 's/[Bb]ackhaul[[:space:]]*\([Pp]remium\)\{0,1\}//g' \
+        -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' |
+    sed -n '/[0-9]/{p;q;}'
+}
+
+# ----------------------------------------------------------------- کمک‌ها --
+# «سمت» تونل: server = پورت‌ها را Listen می‌کند، client = همیشه Dial می‌کند.
+side_conf() {
+  case "$1" in
+    server|s) printf '%s\n' "$CONF_DIR/server.toml" ;;
+    client|c) printf '%s\n' "$CONF_DIR/client.toml" ;;
+    *) die "سمت نامعتبر: «$1» (server یا client)" ;;
+  esac
+}
+
+side_unit() {
+  case "$1" in
+    server|s) printf '%s\n' 'farshub-server.service' ;;
+    client|c) printf '%s\n' 'farshub-client.service' ;;
+    *) die "سمت نامعتبر: «$1» (server یا client)" ;;
+  esac
+}
+
+# اگر سمت را ندادند و فقط یکی از دو کانفیگ نصب است، همان را بردار.
+guess_side() {
+  has_s=0; has_c=0
+  [ -f "$CONF_DIR/server.toml" ] && has_s=1
+  [ -f "$CONF_DIR/client.toml" ] && has_c=1
+  if [ "$has_s" = 1 ] && [ "$has_c" = 0 ]; then printf 'server\n'; return; fi
+  if [ "$has_c" = 1 ] && [ "$has_s" = 0 ]; then printf 'client\n'; return; fi
+  if [ "$has_s" = 0 ] && [ "$has_c" = 0 ]; then
+    die "کانفیگی در $CONF_DIR نیست. «farshub install» را اجرا کنید."
+  fi
+  die 'هر دو سمت نصب است — صریح بگویید: farshub '"$1"' server|client'
+}
+
+need_root() {
+  [ "$(id -u)" = 0 ] || die 'این دستور به root نیاز دارد (sudo).'
+}
+
+# نصب در مسیرهای پیش‌فرض root می‌خواهد؛ نصب در یک prefix شخصی (متغیرهای
+# FARSHUB_*) نه.
+need_write() {
+  [ "$(id -u)" = 0 ] && return 0
+  for d in "$@"; do
+    p=$d
+    while [ ! -e "$p" ] && [ "$p" != '/' ]; do p=$(dirname -- "$p"); done
+    [ -w "$p" ] || die "دسترسی نوشتن به $d نیست — با sudo اجرا کنید."
+  done
+}
+
+have_systemd() { command -v systemctl >/dev/null 2>&1; }
+
+# --------------------------------------------------------------- راهنما --
+cmd_help() {
+  cat <<EOF
+$BRAND — تونل معکوس برای عبور از NAT و فیلترینگ
+
+استفاده:
+  farshub <دستور> [سمت] [گزینه‌ها]
+
+«سمت» یکی از server یا client است. اگر فقط یک سمت روی این ماشین نصب باشد،
+می‌توانید ننویسید.
+
+دستورها:
+  install <سمت>     نصب موتور، کانفیگ و سرویس systemd روی این ماشین
+  run <سمت>         اجرای مستقیم در ترمینال (بدون systemd) — برای عیب‌یابی
+  start <سمت>       راه‌اندازی سرویس
+  stop <سمت>        توقف سرویس
+  restart <سمت>     راه‌اندازی مجدد سرویس
+  enable <سمت>      اجرای خودکار در boot + راه‌اندازی فوری
+  disable <سمت>     لغو اجرای خودکار + توقف
+  status [سمت]      وضعیت سرویس و خلاصه‌ی کانفیگ
+  logs [سمت] [-n N] آخرین رویدادها (پیش‌فرض ۵۰ خط)؛ با -f زنده دنبال کن
+  config [سمت]      نمایش مسیر و محتوای کانفیگ
+  edit [سمت]        باز کردن کانفیگ در ویرایشگر (\$EDITOR)
+  token             ساخت توکن تصادفی ۳۲ بایتی
+  check [سمت]       بررسی سلامت نصب و هشدارهای امنیتی
+  panel             راهنمای بالا آوردن پنل وب
+  version           نسخه‌ی FarsHub و موتور اجرا
+  support           راه ارتباط با پشتیبانی
+  help              همین متن
+
+نمونه:
+  farshub install server
+  farshub token
+  farshub edit server
+  farshub enable server
+  farshub logs -f
+
+پشتیبانی: $SUPPORT
+EOF
+}
+
+cmd_support() {
+  say "پشتیبانی $BRAND"
+  say ''
+  say "برای راه‌اندازی، خرید سرور یا رفع اشکال تونل در تلگرام پیام بدهید:"
+  say "  $SUPPORT"
+}
+
+cmd_version() {
+  say "$BRAND $CLI_VERSION"
+  cv=$(core_version 2>/dev/null || true)
+  [ -n "$cv" ] && say "موتور اجرا: $cv"
+  return 0
+}
+
+cmd_token() {
+  if command -v openssl >/dev/null 2>&1; then
+    openssl rand -hex 32
+  elif [ -r /dev/urandom ] && command -v od >/dev/null 2>&1; then
+    od -An -tx1 -N32 /dev/urandom | tr -d ' \n'; printf '\n'
+  else
+    die 'نه openssl هست و نه /dev/urandom — توکن را دستی بسازید.'
+  fi
+}
+
+# ----------------------------------------------------------------- اجرا --
+# اجرای مستقیم. خروجی موتور از فیلتر برندینگ عبور می‌کند تا کاربر «Backhaul
+# Premium» و لینک فروشنده‌ی آپ‌استریم را نبیند. توجه: stderr هم رد می‌شود.
+#
+# -u (unbuffered) در GNU sed هست ولی در همه‌ی sedها نه؛ یک بار می‌سنجیم، چون
+# بدون آن لاگ زنده تا پر شدن بافر معلق می‌ماند.
+SED_U=''
+if printf '' | sed -u '' >/dev/null 2>&1; then SED_U='-u'; fi
+
+brand_filter() {
+  # ترتیب مهم است. دو چیز عمداً بازنویسی *نمی‌شوند*، چون برندینگ نیستند و
+  # عوض کردنشان کاربر را گمراه می‌کند:
+  #   backhaul.json          نام فایل پیش‌فرض لاگ sniffer — مسیر واقعی روی دیسک
+  #   github.com/musix/...   مسیر پکیج در stack trace — برای جست‌وجوی خطا لازم است
+  # هر دو اول به یک نشانه تبدیل و آخر برگردانده می‌شوند.
+  sed $SED_U \
+      -e 's#github\.com/musix/backhaul#@@FH_PKG@@#g' \
+      -e 's/backhaul\.json/@@FH_LOG@@/g' \
+      -e "s#https\{0,1\}://t\.me/dawsh42#$SUPPORT#g" \
+      -e "s/Backhaul Premium/$BRAND/g" \
+      -e "s/[Bb]ackhaul/FarsHub/g" \
+      -e 's/@@FH_LOG@@/backhaul.json/g' \
+      -e 's#@@FH_PKG@@#github.com/musix/backhaul#g'
+}
+
+cmd_run() {
+  side=${1:-}
+  [ -n "$side" ] || side=$(guess_side run)
+  conf=$(side_conf "$side")
+  [ -f "$conf" ] || die "کانفیگ نیست: $conf"
+  core=$(find_core)
+  say "$BRAND — اجرای مستقیم سمت $side ($conf)"
+  say 'برای توقف Ctrl+C. برای اجرای دائمی از farshub enable استفاده کنید.'
+  say ''
+  # pipe کد خروج را می‌خورد (sh POSIX ‏PIPESTATUS ندارد)، پس آن را از یک فایل
+  # موقت برمی‌گردانیم — عیب‌یابی بدون کد خروج درست بی‌فایده است. `|| rc=$?`
+  # هم لازم است تا set -e زیرپوسته را قبل از نوشتن فایل نکشد.
+  # 2>&1 لازم است چون موتور لاگ را روی stderr می‌نویسد.
+  rcf=$(mktemp) || die 'ساخت فایل موقت ناموفق بود.'
+  { rc=0; "$core" -c "$conf" 2>&1 || rc=$?; printf '%s' "$rc" >"$rcf"; } | brand_filter
+  rc=$(cat "$rcf" 2>/dev/null || printf 1); rm -f "$rcf"
+  return "${rc:-1}"
+}
+
+# نقطه‌ی ورود یونیت‌های systemd. برخلاف run هیچ pipe ندارد: با exec جای همین
+# پروسه را می‌گیرد، پس systemd خود موتور را می‌بیند و کد خروج و سیگنال‌ها
+# دست‌نخورده می‌مانند. فیلتر برندینگ اینجا اعمال نمی‌شود چون `farshub logs`
+# هنگام خواندن فیلتر می‌کند.
+cmd_exec() {
+  side=${1:-}
+  [ -n "$side" ] || side=$(guess_side run)
+  conf=$(side_conf "$side")
+  [ -f "$conf" ] || die "کانفیگ نیست: $conf"
+  core=$(find_core)
+  exec "$core" -c "$conf"
+}
+
+# ------------------------------------------------------------- systemd --
+svc() {
+  action=$1; side=${2:-}
+  [ -n "$side" ] || side=$(guess_side "$action")
+  have_systemd || die 'systemctl در دسترس نیست. از «farshub run» استفاده کنید.'
+  unit=$(side_unit "$side")
+  case "$action" in
+    start|stop|restart) need_root; systemctl "$action" "$unit"
+      say "سرویس $side: $action انجام شد." ;;
+    enable)  need_root; systemctl enable --now "$unit"
+      say "سرویس $side فعال شد و در boot خودکار بالا می‌آید." ;;
+    disable) need_root; systemctl disable --now "$unit"
+      say "سرویس $side غیرفعال و متوقف شد." ;;
+  esac
+}
+
+cmd_status() {
+  side=${1:-}
+  [ -n "$side" ] || side=$(guess_side status)
+  conf=$(side_conf "$side")
+  unit=$(side_unit "$side")
+
+  say "$BRAND — وضعیت سمت $side"
+  say ''
+  if have_systemd; then
+    state=$(systemctl is-active "$unit" 2>/dev/null || true)
+    boot=$(systemctl is-enabled "$unit" 2>/dev/null || true)
+    case "$state" in
+      active) say '  سرویس        : در حال اجرا' ;;
+      inactive) say '  سرویس        : متوقف' ;;
+      failed) say '  سرویس        : خطا — «farshub logs» را ببینید' ;;
+      *) say "  سرویس        : ${state:-نصب نشده}" ;;
+    esac
+    case "$boot" in
+      enabled) say '  اجرا در boot : بله' ;;
+      disabled) say '  اجرا در boot : خیر' ;;
+      *) say "  اجرا در boot : ${boot:-نامعلوم}" ;;
+    esac
+  else
+    say '  سرویس        : systemd در دسترس نیست'
+  fi
+  say "  کانفیگ       : $conf"
+
+  # خلاصه‌ی مقادیر کلیدی؛ token هرگز چاپ نمی‌شود.
+  if [ -f "$conf" ]; then
+    for k in transport bind_addr remote_addr web_port log_level pprof; do
+      v=$(sed -n "s/^[[:space:]]*$k[[:space:]]*=[[:space:]]*//p" "$conf" \
+          | sed -e 's/[[:space:]]*#.*$//' -e 's/"//g' -e 's/[[:space:]]*$//' \
+          | head -n1)
+      [ -n "$v" ] && printf '  %-12s : %s\n' "$k" "$v"
+    done
+    grep -q '^[[:space:]]*token[[:space:]]*=[[:space:]]*"CHANGE_ME"' "$conf" &&
+      say '  ⚠ توکن هنوز CHANGE_ME است — «farshub token» و بعد «farshub edit».'
+  fi
+  say ''
+  say "پشتیبانی: $SUPPORT"
+}
+
+cmd_logs() {
+  side=''; lines=50; follow=0
+  while [ $# -gt 0 ]; do
+    case $1 in
+      -f|--follow) follow=1 ;;
+      -n) shift; lines=${1:-50} ;;
+      -n*) lines=${1#-n} ;;
+      server|s|client|c) side=$1 ;;
+      *) die "گزینه‌ی ناشناس: $1" ;;
+    esac
+    shift
+  done
+  [ -n "$side" ] || side=$(guess_side logs)
+  have_systemd || die 'systemctl نیست؛ لاگ سرویس در دسترس نیست.'
+  unit=$(side_unit "$side")
+  if [ "$follow" = 1 ]; then
+    journalctl -u "$unit" -n "$lines" -f --no-pager | brand_filter
+  else
+    journalctl -u "$unit" -n "$lines" --no-pager | brand_filter
+  fi
+}
+
+cmd_config() {
+  side=${1:-}
+  [ -n "$side" ] || side=$(guess_side config)
+  conf=$(side_conf "$side")
+  [ -f "$conf" ] || die "کانفیگ نیست: $conf"
+  say "# $conf"
+  say ''
+  # token را ماسک می‌کنیم تا در اسکرین‌شات و paste لو نرود.
+  sed 's/^\([[:space:]]*token[[:space:]]*=[[:space:]]*\).*/\1"********"   # مخفی شده/' "$conf"
+}
+
+cmd_edit() {
+  side=${1:-}
+  [ -n "$side" ] || side=$(guess_side edit)
+  conf=$(side_conf "$side")
+  [ -f "$conf" ] || die "کانفیگ نیست: $conf"
+  ed=${EDITOR:-${VISUAL:-}}
+  if [ -z "$ed" ]; then
+    for e in nano vim vi; do command -v "$e" >/dev/null 2>&1 && { ed=$e; break; }; done
+  fi
+  [ -n "$ed" ] || die 'ویرایشگری پیدا نشد. $EDITOR را ست کنید.'
+  "$ed" "$conf"
+  say 'برای اعمال تغییرات: farshub restart '"$side"
+}
+
+# ------------------------------------------------------------------ نصب --
+cmd_install() {
+  side=${1:-}
+  [ -n "$side" ] || die 'سمت را بگویید: farshub install server|client'
+  case "$side" in server|s) side=server ;; client|c) side=client ;;
+    *) die "سمت نامعتبر: «$side»" ;; esac
+  need_write "$LIBEXEC" "$BIN_DIR" "$CONF_DIR" "$LOG_DIR" "$STATE_DIR"
+
+  src=$self_dir
+  [ -f "$src/farshub-core" ] || src="$self_dir/../bin"
+  [ -f "$src/farshub-core" ] || die 'farshub-core کنار این اسکریپت نیست.'
+  repo=$(CDPATH= cd -- "$src/.." && pwd)
+
+  say "نصب $BRAND — سمت $side"
+
+  install -Dm755 "$src/farshub-core" "$LIBEXEC/farshub-core"
+  install -Dm755 "$src/farshub"      "$BIN_DIR/farshub"
+  say "  موتور  → $LIBEXEC/farshub-core"
+  say "  دستور  → $BIN_DIR/farshub"
+
+  if [ -f "$CONF_DIR/$side.toml" ]; then
+    say "  کانفیگ → $CONF_DIR/$side.toml (موجود بود، دست نخورد)"
+  else
+    install -Dm600 "$repo/configs/$side.toml" "$CONF_DIR/$side.toml"
+    say "  کانفیگ → $CONF_DIR/$side.toml"
+  fi
+
+  install -d -m755 "$LOG_DIR" "$STATE_DIR"
+
+  if have_systemd; then
+    unit=$(side_unit "$side")
+    install -Dm644 "$repo/systemd/$unit" "$UNIT_DIR/$unit"
+    systemctl daemon-reload
+    say "  سرویس  → $UNIT_DIR/$unit"
+  else
+    say '  سرویس  → رد شد (systemd نیست)'
+  fi
+
+  say ''
+  say 'گام بعد:'
+  say '  1) farshub token          # توکن بساز'
+  say "  2) farshub edit $side     # توکن و پورت‌ها را بگذار"
+  say "  3) farshub enable $side   # راه‌اندازی و اجرای خودکار در boot"
+  say ''
+  say 'توکن باید در دو طرف تونل عیناً یکسان باشد.'
+}
+
+# ---------------------------------------------------------------- بررسی --
+# هشدارهای امنیتی همان‌هایی است که در README مستند شده — اینجا روی نصب
+# واقعی سنجیده می‌شود، نه فقط توصیه.
+cmd_check() {
+  side=${1:-}
+  [ -n "$side" ] || side=$(guess_side check)
+  conf=$(side_conf "$side")
+  warn=0
+
+  say "$BRAND — بررسی نصب سمت $side"
+  say ''
+
+  if core=$(find_core 2>/dev/null); then
+    say "  ✓ موتور اجرا: $core"
+  else
+    say '  ✗ موتور اجرا پیدا نشد'; warn=$((warn + 1))
+  fi
+
+  if [ -f "$conf" ]; then
+    say "  ✓ کانفیگ: $conf"
+    perm=$(stat -c '%a' "$conf" 2>/dev/null || echo '?')
+    case "$perm" in
+      600|400) say "  ✓ دسترسی کانفیگ: $perm" ;;
+      ?) say '  … دسترسی کانفیگ خوانده نشد' ;;
+      *) say "  ✗ دسترسی کانفیگ $perm — توکن قابل خواندن است. chmod 600 بزنید."
+         warn=$((warn + 1)) ;;
+    esac
+  else
+    say "  ✗ کانفیگ نیست: $conf"; warn=$((warn + 1))
+  fi
+
+  if [ -f "$conf" ]; then
+    val() { sed -n "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*//p" "$conf" \
+            | sed -e 's/[[:space:]]*#.*$//' -e 's/"//g' -e 's/[[:space:]]*$//' | head -n1; }
+
+    [ "$(val token)" = 'CHANGE_ME' ] && {
+      say '  ✗ توکن هنوز CHANGE_ME است — تونل با این مقدار امن نیست'
+      warn=$((warn + 1)); }
+
+    t=$(val transport)
+    case "$t" in
+      wss|wssmux) say "  ✓ ترانسپورت $t (رمزنگاری‌شده)" ;;
+      '') ;;
+      *) say "  ⚠ ترانسپورت $t رمزنگاری ندارد — برای رمزنگاری wss یا wssmux" ;;
+    esac
+
+    w=$(val web_port)
+    [ -n "$w" ] && [ "$w" != '0' ] &&
+      say "  ⚠ web_port=$w باز است و احراز هویت ندارد — پشت nginx بگذارید"
+
+    [ "$(val pprof)" = 'true' ] &&
+      { say '  ✗ pprof=true — روی 0.0.0.0:6060 بدون auth باز می‌شود'
+        warn=$((warn + 1)); }
+
+    [ "$(val log_level)" = 'info' ] &&
+      say '  ⚠ log_level=info مقدار توکن را در خطای mismatch لاگ می‌کند'
+  fi
+
+  if have_systemd; then
+    unit=$(side_unit "$side")
+    if [ -f "$UNIT_DIR/$unit" ]; then
+      say "  ✓ سرویس: $unit"
+    else
+      say "  ⚠ یونیت systemd نصب نیست: $unit"
+    fi
+  fi
+
+  say ''
+  if [ "$warn" = 0 ]; then
+    say 'مشکل جدی پیدا نشد.'
+  else
+    say "$warn مورد نیاز به رسیدگی دارد."
+  fi
+  say "پشتیبانی: $SUPPORT"
+  [ "$warn" = 0 ]
+}
+
+cmd_panel() {
+  say "$BRAND — پنل وب"
+  say ''
+  say 'پنل FarsHub در پوشه‌ی web/ مخزن است: ایستا، دوزبانه، بدون CDN.'
+  say 'پنل داخلی موتور اجرا جدا است و برندینگ آپ‌استریم را دارد؛ آن را از'
+  say 'بیرون باز نکنید (احراز هویت ندارد).'
+  say ''
+  say 'راه‌اندازی:'
+  say "  1) در $CONF_DIR/*.toml مقدار web_port را روی یک پورت لوکال بگذارید"
+  say '  2) پوشه‌ی web/ را با nginx سرو کنید'
+  say '  3) مسیرهای /data و /stats را به web_port پروکسی کنید'
+  say ''
+  say 'جزئیات و نمونه‌ی کانفیگ nginx: docs/PANEL.md'
+}
+
+# ---------------------------------------------------------------- dispatch --
+[ $# -gt 0 ] || { cmd_help; exit 0; }
+cmd=$1; shift
+
+case "$cmd" in
+  install)                 cmd_install "$@" ;;
+  run)                     cmd_run "$@" ;;
+  _exec)                   cmd_exec "$@" ;;   # داخلی — یونیت systemd
+  start|stop|restart|enable|disable) svc "$cmd" "$@" ;;
+  status)                  cmd_status "$@" ;;
+  logs|log)                cmd_logs "$@" ;;
+  config|conf)             cmd_config "$@" ;;
+  edit)                    cmd_edit "$@" ;;
+  token)                   cmd_token ;;
+  check|doctor)            cmd_check "$@" ;;
+  panel)                   cmd_panel ;;
+  version|-v|--version)    cmd_version ;;
+  support)                 cmd_support ;;
+  help|-h|--help)          cmd_help ;;
+  # هر چیز دیگر: مستقیم به موتور اجرا، با فیلتر برندینگ.
+  *)
+    core=$(find_core)
+    "$core" "$cmd" "$@" 2>&1 | brand_filter
+    ;;
+esac

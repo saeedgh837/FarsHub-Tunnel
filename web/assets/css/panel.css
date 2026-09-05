@@ -1,0 +1,944 @@
+/* ==========================================================================
+   FarsHub Panel — instrument styling
+   بدون هیچ وابستگی CDN. فونت‌ها محلی هستند (web/assets/fonts).
+
+   نکته‌ی مهم i18n: letter-spacing هرگز روی متن فارسی اعمال نمی‌شود، چون
+   اتصال حروف را می‌شکند. هر جا tracking لازم بود، به [data-locale="en"]
+   محدود شده است.
+   ========================================================================== */
+
+/* ------------------------------------------------------------------ fonts -- */
+
+@font-face {
+  font-family: 'Vazirmatn';
+  src: url('../fonts/Vazirmatn-Variable.woff2') format('woff2-variations');
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+/* JetBrains Mono — دو وزن ایستا (۴۰۰ و ۷۰۰؛ وزن ۶۰۰ی پنل طبق قواعد تطبیق فونت
+   به ۷۰۰ می‌رسد، پس Medium فایل مرده بود و حذف شد). unicode-range محدود است تا
+   حروف فارسی هرگز به این فونت نیفتند (فارسی monospace ندارد و شکسته می‌شود). */
+@font-face {
+  font-family: 'FarsHub Mono';
+  src: url('../fonts/JetBrainsMono-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-display: swap;
+  unicode-range: U+0000-024F, U+2000-206F, U+2190-21FF, U+2212, U+2264-2265;
+}
+
+@font-face {
+  font-family: 'FarsHub Mono';
+  src: url('../fonts/JetBrainsMono-Bold.woff2') format('woff2');
+  font-weight: 700;
+  font-display: swap;
+  unicode-range: U+0000-024F, U+2000-206F, U+2190-21FF, U+2212, U+2264-2265;
+}
+
+/* ------------------------------------------------------------------ tokens -- */
+
+:root {
+  /* پالت — «تابلوی ابزار»: زمینه‌ی نفتی عمیق، سیگنال نعنایی */
+  --petrol-950: #0a1316;
+  --petrol-900: #0e1b20;
+  --petrol-850: #12232a;
+  --petrol-800: #182f37;
+  --petrol-700: #21414b;
+  --mint-400: #3fd8c0;
+  --mint-300: #6fe8d5;
+  --mint-600: #0e9c86;
+  --amber-400: #f2a33c;
+  --coral-400: #f2635c;
+  --iris-400: #9b8cff;
+  --paper-50: #f2f5f4;
+  --paper-100: #e7edec;
+  --paper-0: #ffffff;
+
+  /* نقش‌ها — تم تیره (پیش‌فرض) */
+  --bg: var(--petrol-950);
+  --bg-raised: var(--petrol-900);
+  --bg-sunken: #071013;
+  --bg-tile: var(--petrol-850);
+  --bg-hover: var(--petrol-800);
+  --line: #1d343c;
+  --line-strong: #2b4a55;
+  --ink: #dfeae8;
+  --ink-muted: #8fa8ad;
+  --ink-faint: #7a969d;   /* ≥4.5:1 روی سطح کارت — متن کم‌رنگ هم باید خوانا بماند */
+  --accent: var(--mint-400);
+  --accent-ink: #04211c;
+  --accent-soft: color-mix(in oklab, var(--mint-400) 14%, transparent);
+  --warn: var(--amber-400);
+  --danger: var(--coral-400);
+  --info: var(--iris-400);
+  --grid-line: color-mix(in oklab, var(--mint-400) 8%, transparent);
+  --shadow-tile: 0 1px 0 color-mix(in oklab, white 5%, transparent) inset,
+                 0 8px 24px -16px #000;
+
+  /* تایپ */
+  --font-ui: 'Vazirmatn', ui-sans-serif, system-ui, sans-serif;
+  /* Vazirmatn داخل استک mono عمداً حاضر است: ارقام فارسی (U+06F0–U+06F9) از
+     unicode-range جت‌برینز بیرون‌اند و باید به Vazirmatn بیفتند، نه به فونت
+     مونوی سیستم که ممکن است این ارقام را نداشته باشد. */
+  --font-mono: 'FarsHub Mono', 'Vazirmatn', ui-monospace, 'Cascadia Mono', monospace;
+
+  --step--1: clamp(0.72rem, 0.7rem + 0.1vw, 0.78rem);
+  --step-0: clamp(0.86rem, 0.83rem + 0.15vw, 0.94rem);
+  --step-1: clamp(1rem, 0.95rem + 0.25vw, 1.13rem);
+  --step-2: clamp(1.25rem, 1.15rem + 0.5vw, 1.5rem);
+  --step-3: clamp(1.7rem, 1.4rem + 1.4vw, 2.5rem);
+  --step-4: clamp(2.4rem, 1.8rem + 3vw, 4.2rem);
+
+  /* فاصله و شکل */
+  --gap: clamp(0.75rem, 0.5rem + 1vw, 1.25rem);
+  --pad: clamp(0.9rem, 0.7rem + 0.7vw, 1.4rem);
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 16px;
+  --ease: cubic-bezier(0.22, 0.68, 0.3, 1);
+}
+
+[data-theme='light'] {
+  --bg: var(--paper-50);
+  --bg-raised: var(--paper-0);
+  --bg-sunken: #e4ebe9;
+  --bg-tile: var(--paper-0);
+  --bg-hover: var(--paper-100);
+  --line: #d2dedb;
+  --line-strong: #b3c4c0;
+  --ink: #0d2126;
+  --ink-muted: #4d6a70;
+  --ink-faint: #5f7a81;   /* ≥4.5:1 روی سطح کارت — متن کم‌رنگ هم باید خوانا بماند */
+  --accent: var(--mint-600);
+  --accent-ink: #ffffff;
+  --accent-soft: color-mix(in oklab, var(--mint-600) 12%, transparent);
+  --warn: #b56b0a;
+  --danger: #cc3a34;
+  --info: #6b57e0;
+  --grid-line: color-mix(in oklab, var(--mint-600) 10%, transparent);
+  --shadow-tile: 0 1px 2px color-mix(in oklab, #0d2126 6%, transparent),
+                 0 8px 20px -14px color-mix(in oklab, #0d2126 22%, transparent);
+}
+
+/* ------------------------------------------------------------------ reset -- */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: var(--step-0);
+  line-height: 1.6;
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3, p { margin: 0; }
+ul { margin: 0; padding: 0; list-style: none; }
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+
+/* اعداد و مقادیر همیشه LTR، حتی داخل صفحه‌ی راست‌چین */
+.num, .mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+.tracked { letter-spacing: 0; }
+[data-locale='en'] .tracked { letter-spacing: 0.09em; text-transform: uppercase; }
+
+.visually-hidden {
+  position: absolute;
+  width: 1px; height: 1px;
+  margin: -1px; padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.skip-link {
+  position: absolute;
+  inset-inline-start: var(--gap);
+  top: -3rem;
+  z-index: 50;
+  padding: 0.5rem 0.9rem;
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-radius: var(--r-sm);
+  transition: top 0.15s var(--ease);
+}
+.skip-link:focus { top: var(--gap); }
+
+/* ------------------------------------------------------------------ layout -- */
+
+.shell {
+  max-width: 1240px;
+  margin-inline: auto;
+  padding: clamp(1rem, 0.5rem + 2vw, 2rem) var(--gap) 4rem;
+  display: grid;
+  /* minmax(0,1fr) لازم است: پیش‌فرض گرید به max-content آیتم‌ها کشیده می‌شود و
+     جدول پورت‌ها (که خودش اسکرول افقی دارد) کل صفحه را در موبایل پهن می‌کرد. */
+  grid-template-columns: minmax(0, 1fr);
+  gap: calc(var(--gap) * 1.6);
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: var(--gap);
+  flex-wrap: wrap;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  margin-inline-end: auto;
+}
+
+.brand__mark {
+  width: 2.1rem;
+  height: 2.1rem;
+  flex: none;
+  color: var(--accent);
+}
+
+.brand__name {
+  font-size: var(--step-1);
+  font-weight: 700;
+  line-height: 1.15;
+}
+
+.brand__tagline {
+  font-size: var(--step--1);
+  color: var(--ink-faint);
+}
+
+.controls { display: flex; align-items: center; gap: 0.4rem; }
+
+.ctl {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--bg-tile);
+  color: var(--ink-muted);
+  font-size: var(--step--1);
+  transition: color 0.15s var(--ease), border-color 0.15s var(--ease),
+              background 0.15s var(--ease);
+}
+.ctl:hover { color: var(--ink); border-color: var(--line-strong); background: var(--bg-hover); }
+.ctl svg { width: 1rem; height: 1rem; flex: none; }
+
+/* وضعیت جریان داده */
+.feed {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: var(--step--1);
+  color: var(--ink-faint);
+}
+
+.feed__dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 0 var(--accent-soft);
+  animation: pulse 2.4s var(--ease) infinite;
+}
+.feed[data-state='paused'] .feed__dot { background: var(--ink-faint); animation: none; }
+.feed[data-state='stale'] .feed__dot { background: var(--warn); animation: none; }
+.feed[data-state='offline'] .feed__dot { background: var(--danger); animation: none; }
+
+@keyframes pulse {
+  0% { box-shadow: 0 0 0 0 var(--accent-soft); }
+  70% { box-shadow: 0 0 0 0.5rem transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+
+/* ============================================================ SIGNATURE ====
+   The link: a live wire between the two nodes. Packet dashes travel along
+   each rail at a speed derived from actual throughput. This is the one
+   place the design spends its boldness.
+   ========================================================================== */
+
+.link {
+  position: relative;
+  padding: clamp(1.2rem, 0.8rem + 2vw, 2.4rem) var(--pad);
+  background:
+    radial-gradient(120% 140% at 50% 0%, var(--accent-soft), transparent 62%),
+    var(--bg-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+}
+
+/* شبکه‌ی پس‌زمینه — ارجاع به تابلوی ابزار */
+.link::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: 34px 34px;
+  mask-image: radial-gradient(140% 100% at 50% 0%, #000 30%, transparent 78%);
+  pointer-events: none;
+}
+
+.link > * { position: relative; }
+
+.link__state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  margin-bottom: 0.35rem;
+}
+
+.link__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.3rem 0.75rem;
+  border-radius: 999px;
+  font-size: var(--step--1);
+  font-weight: 600;
+  border: 1px solid currentColor;
+  color: var(--accent);
+}
+.link[data-state='degraded'] .link__badge { color: var(--warn); }
+.link[data-state='down'] .link__badge,
+.link[data-state='offline'] .link__badge { color: var(--danger); }
+.link[data-state='connecting'] .link__badge { color: var(--info); }
+
+/* «این دستگاه سرور است یا کلاینت» — بلافاصله کنار وضعیت تونل، چون اولین
+   چیزی است که باید بدانی وقتی پنل را باز می‌کنی. */
+.link__side {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.7rem;
+  border-radius: 999px;
+  font-size: var(--step--1);
+  font-weight: 600;
+  background: var(--bg-tile);
+  border: 1px solid var(--line-strong);
+  color: var(--ink-muted);
+}
+.link__side svg { flex: none; }
+.link__side[data-side='server'] { color: var(--accent); border-color: currentColor; }
+.link__side[data-side='client'] { color: var(--info); border-color: currentColor; }
+
+.link__headline {
+  text-align: center;
+  font-size: var(--step-3);
+  font-weight: 800;
+  line-height: 1.1;
+  margin-bottom: 0.25rem;
+}
+
+.link__sub {
+  text-align: center;
+  color: var(--ink-muted);
+  font-size: var(--step--1);
+  margin-bottom: clamp(1.2rem, 1rem + 1vw, 2rem);
+}
+
+/* نمودار دو گره و سیم بین آن‌ها.
+   جهت چیدمان با flex-direction تعیین می‌شود، پس در RTL خودکار برعکس می‌شود؛
+   اما جهت حرکت بسته‌ها معنایی است (کلاینت → سرور) و در JS با --flow ست
+   می‌شود تا مستقل از زبان درست بماند. */
+.wire {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2.2fr) minmax(0, 1fr);
+  align-items: center;
+  gap: var(--gap);
+}
+
+.node {
+  display: grid;
+  gap: 0.15rem;
+  justify-items: center;
+  text-align: center;
+}
+
+.node__icon {
+  width: 2.6rem;
+  height: 2.6rem;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--bg-tile);
+  color: var(--accent);
+  margin-bottom: 0.35rem;
+}
+.node__icon svg { width: 1.3rem; height: 1.3rem; }
+
+.node__name { font-weight: 700; }
+.node__sub { font-size: var(--step--1); color: var(--ink-faint); line-height: 1.4; }
+
+/* «همین دستگاه» فقط روی گره‌ی متناظر با نقش سرویس ظاهر می‌شود */
+.node__here {
+  display: none;
+  font-size: var(--step--1);
+  font-weight: 700;
+  padding: 0.05rem 0.45rem;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+.node[data-here='true'] .node__here { display: inline-block; }
+.node[data-here='true'] .node__icon {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+/* دو ریل: بالا = ارسال کلاینت→سرور، پایین = دریافت سرور→کلاینت */
+.rails { display: grid; gap: 0.6rem; }
+
+.rail {
+  --flow: 1;          /* 1 = چپ‌به‌راست, -1 = راست‌به‌چپ (در JS ست می‌شود) */
+  --speed: 3s;        /* از گذردهی واقعی مشتق می‌شود */
+  position: relative;
+  height: 2px;
+  background: var(--line-strong);
+  border-radius: 2px;
+}
+
+.rail::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    90deg,
+    var(--accent) 0 10px,
+    transparent 10px 34px
+  );
+  animation: flow var(--speed) linear infinite;
+  animation-direction: var(--flow-dir, normal);
+  opacity: 0.9;
+}
+
+.rail[data-idle='true']::after { animation-play-state: paused; opacity: 0.2; }
+
+@keyframes flow {
+  from { background-position-x: 0; }
+  to { background-position-x: 34px; }
+}
+
+.rail__label {
+  position: absolute;
+  inset-inline-start: 0;
+  top: -1.35rem;
+  display: flex;
+  gap: 0.4rem;
+  align-items: baseline;
+  font-size: var(--step--1);
+  color: var(--ink-muted);
+  white-space: nowrap;
+}
+.rail--down .rail__label { top: auto; bottom: -1.35rem; }
+
+/* ریل پایین جریان معکوس دارد: سرور → کلاینت */
+.rail--down { --flow-dir: reverse; }
+
+.rail__mid {
+  display: grid;
+  gap: 0.3rem;
+  justify-items: center;
+  padding-block: 0.9rem;
+}
+
+.rail__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.2rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--bg-tile);
+  font-size: var(--step--1);
+  color: var(--ink-muted);
+}
+
+/* --------------------------------------------------------------- KPI tiles -- */
+
+/* دو ستون تا وقتی چهار ستون کامل جا شود؛ auto-fit اینجا ۳+۱ می‌ساخت و
+   کاشی چهارم تنها می‌ماند. */
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--gap);
+}
+
+@media (min-width: 68rem) {
+  .tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+
+.tile {
+  display: grid;
+  gap: 0.55rem;
+  padding: var(--pad);
+  background: var(--bg-tile);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-tile);
+}
+
+.tile__head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--ink-muted);
+  font-size: var(--step--1);
+}
+.tile__head svg { width: 0.95rem; height: 0.95rem; color: var(--accent); flex: none; }
+
+.tile__value {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  font-size: var(--step-2);
+  font-weight: 700;
+  line-height: 1;
+}
+.tile__unit { font-size: var(--step--1); font-weight: 500; color: var(--ink-faint); }
+
+.tile__hint { font-size: var(--step--1); color: var(--ink-faint); line-height: 1.45; }
+
+.tile__spark { height: 2.2rem; width: 100%; display: block; overflow: visible; }
+.tile__spark path { vector-effect: non-scaling-stroke; }
+.tile__spark .spark__line { fill: none; stroke: var(--accent); stroke-width: 1.5; stroke-linejoin: round; }
+.tile__spark .spark__area { fill: var(--accent-soft); stroke: none; }
+.tile__spark .spark__tip { fill: var(--accent); }
+
+/* --------------------------------------------------------------- panel/card -- */
+
+.card {
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+
+.card__head {
+  display: flex;
+  align-items: center;
+  gap: var(--gap);
+  flex-wrap: wrap;
+  padding: var(--pad);
+  border-bottom: 1px solid var(--line);
+}
+
+.card__title { font-size: var(--step-1); font-weight: 700; }
+.card__subtitle { font-size: var(--step--1); color: var(--ink-faint); }
+.card__titles { margin-inline-end: auto; }
+
+.card__body { padding: var(--pad); }
+.card__body--flush { padding: 0; }
+
+.search {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--bg-sunken);
+  color: var(--ink-faint);
+}
+.search svg { width: 0.95rem; height: 0.95rem; flex: none; }
+.search input {
+  font: inherit;
+  font-size: var(--step--1);
+  color: var(--ink);
+  background: none;
+  border: 0;
+  outline: none;
+  inline-size: 12ch;
+}
+.search input::placeholder { color: var(--ink-faint); }
+.search:focus-within { border-color: var(--accent); color: var(--ink); }
+
+/* ------------------------------------------------------------------- table -- */
+
+.table-scroll { overflow-x: auto; max-inline-size: 100%; }
+
+table {
+  inline-size: 100%;
+  min-inline-size: max-content;   /* سلول‌ها nowrap‌اند؛ بگذار جدول پهن شود و ظرف اسکرول کند */
+  border-collapse: collapse;
+  font-size: var(--step--1);
+}
+
+th, td {
+  padding: 0.6rem var(--pad);
+  text-align: start;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--line);
+}
+
+thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg-sunken);
+  color: var(--ink-muted);
+  font-weight: 600;
+  font-size: var(--step--1);
+}
+
+tbody tr { transition: background 0.12s var(--ease); }
+tbody tr:hover { background: var(--bg-hover); }
+tbody tr:last-child td { border-bottom: 0; }
+
+tfoot td {
+  background: var(--bg-sunken);
+  font-weight: 700;
+  border-bottom: 0;
+  border-top: 1px solid var(--line-strong);
+}
+
+.cell-num { text-align: end; }
+[dir='rtl'] .cell-num { text-align: end; }
+
+/* نوار سهم — به‌جای عدد درصد خالی، مقایسه‌ی بصری */
+.share {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-inline-size: 7rem;
+}
+
+.share__track {
+  flex: 1;
+  height: 0.4rem;
+  border-radius: 999px;
+  background: var(--bg-sunken);
+  overflow: hidden;
+}
+
+.share__fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: inline-size 0.4s var(--ease);
+}
+
+.share__pct { color: var(--ink-faint); min-inline-size: 3.2ch; text-align: end; }
+
+.port-chip {
+  display: inline-block;
+  padding: 0.1rem 0.45rem;
+  border-radius: var(--r-sm);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-weight: 600;
+  direction: ltr;
+}
+
+/* ---------------------------------------------------------------- meters -- */
+
+/* چهار متر — دو ستون، و در عرض کافی چهار ستون. مثل کاشی‌ها، تا 3+1 نشود. */
+.meters {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--gap) calc(var(--gap) * 1.5);
+}
+
+@media (min-width: 68rem) {
+  .meters { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+
+.meter { display: grid; gap: 0.45rem; }
+
+.meter__head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: var(--step--1);
+}
+.meter__name { color: var(--ink-muted); margin-inline-end: auto; }
+.meter__pct { font-weight: 700; font-size: var(--step-1); }
+
+.meter__track {
+  height: 0.5rem;
+  border-radius: 999px;
+  background: var(--bg-sunken);
+  overflow: hidden;
+}
+
+.meter__fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: inline-size 0.45s var(--ease), background 0.3s var(--ease);
+}
+.meter[data-level='warn'] .meter__fill { background: var(--warn); }
+.meter[data-level='high'] .meter__fill { background: var(--danger); }
+.meter[data-level='warn'] .meter__pct { color: var(--warn); }
+.meter[data-level='high'] .meter__pct { color: var(--danger); }
+
+.meter__detail { font-size: var(--step--1); color: var(--ink-faint); }
+
+/* ------------------------------------------------------------------ events -- */
+
+.events { display: grid; gap: 0.1rem; }
+
+.event {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  gap: 0.7rem;
+  align-items: baseline;
+  padding: 0.5rem var(--pad);
+  border-bottom: 1px solid var(--line);
+  font-size: var(--step--1);
+}
+.event:last-child { border-bottom: 0; }
+
+.event__time { color: var(--ink-faint); }
+
+.event__level {
+  padding: 0.05rem 0.45rem;
+  border-radius: var(--r-sm);
+  font-weight: 600;
+  border: 1px solid currentColor;
+}
+.event[data-level='info'] .event__level { color: var(--info); }
+.event[data-level='warn'] .event__level { color: var(--warn); }
+.event[data-level='error'] .event__level { color: var(--danger); }
+
+.event__text { color: var(--ink-muted); white-space: normal; }
+
+/* ------------------------------------------------------------------- empty -- */
+
+.empty {
+  display: grid;
+  gap: 0.3rem;
+  justify-items: center;
+  text-align: center;
+  padding: clamp(2rem, 1.5rem + 3vw, 3.5rem) var(--pad);
+  color: var(--ink-faint);
+}
+.empty svg { width: 2rem; height: 2rem; color: var(--line-strong); margin-bottom: 0.4rem; }
+.empty__title { color: var(--ink-muted); font-weight: 600; }
+
+/* ====================================================== runtime ribbon ======
+   این مقادیر قبلاً ته صفحه در یک <footer> ریز بودند. اینجا بلافاصله زیر hero
+   می‌آیند و مثل نوار ابزار خوانده می‌شوند: برچسب ریز بالا، مقدار درشت پایین.
+   ========================================================================== */
+
+.ribbon {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--line);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+
+@media (min-width: 40rem) { .ribbon { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (min-width: 68rem) { .ribbon { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
+
+.ribbon__item {
+  display: grid;
+  gap: 0.15rem;
+  padding: 0.7rem var(--pad);
+  background: var(--bg-raised);
+  min-inline-size: 0;
+}
+
+.ribbon__label {
+  font-size: var(--step--1);
+  color: var(--ink-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ribbon__value {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: var(--step-1);
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* نقطه‌ی رنگی کنار نقش: سبز = سرور، بنفش = کلاینت */
+.ribbon__dot {
+  width: 0.45rem;
+  height: 0.45rem;
+  flex: none;
+  border-radius: 50%;
+  background: var(--ink-faint);
+}
+.ribbon__dot[data-side='server'] { background: var(--accent); }
+.ribbon__dot[data-side='client'] { background: var(--info); }
+
+.ribbon__item--time .ribbon__value { font-size: var(--step-0); color: var(--ink-muted); }
+
+/* ------------------------------------------------- server specs + support -- */
+
+.split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--gap);
+}
+@media (min-width: 62rem) {
+  .split { grid-template-columns: minmax(0, 1.75fr) minmax(0, 1fr); align-items: start; }
+}
+
+/* جدول مشخصات: دو ستونِ برچسب/مقدار که در موبایل روی هم می‌افتد */
+.specs { display: grid; margin: 0; }
+
+.specs__row {
+  display: grid;
+  grid-template-columns: minmax(0, 9rem) minmax(0, 1fr);
+  gap: 0.3rem var(--gap);
+  align-items: baseline;
+  padding: 0.55rem var(--pad);
+  border-bottom: 1px solid var(--line);
+}
+.specs__row:last-child { border-bottom: 0; }
+
+.specs dt { color: var(--ink-faint); font-size: var(--step--1); margin: 0; }
+.specs dd {
+  margin: 0;
+  min-inline-size: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+/* دکمه‌ی رونوشت فقط با هاور/فوکوس روی سطر دیده می‌شود تا شلوغ نشود */
+.specs__copy {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 1.4rem; height: 1.4rem;
+  border-radius: var(--r-sm);
+  color: var(--ink-faint);
+  opacity: 0;
+  transition: opacity 0.15s var(--ease), color 0.15s var(--ease);
+}
+.specs__copy svg { width: 0.85rem; height: 0.85rem; }
+.specs__row:hover .specs__copy,
+.specs__copy:focus-visible { opacity: 1; }
+.specs__copy:hover { color: var(--accent); }
+.specs__copy[data-done='true'] { opacity: 1; color: var(--accent); }
+
+/* کارت پشتیبانی — تک تمرکز، پس تنها بلوکی است که زمینه‌ی accent دارد */
+.support {
+  display: grid;
+  justify-items: start;
+  gap: 0.55rem;
+  padding: var(--pad);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background:
+    radial-gradient(130% 120% at 100% 0%, var(--accent-soft), transparent 65%),
+    var(--bg-raised);
+  position: relative;
+  overflow: hidden;
+}
+
+.support__glyph {
+  position: absolute;
+  inset-block-start: -1.4rem;
+  inset-inline-end: -1.2rem;
+  width: 7rem; height: 7rem;
+  color: var(--accent);
+  opacity: 0.1;
+  pointer-events: none;
+}
+.support__glyph svg { width: 100%; height: 100%; }
+
+.support__title { font-size: var(--step-1); font-weight: 700; }
+.support__body { font-size: var(--step--1); color: var(--ink-muted); line-height: 1.6; }
+
+.support__cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-block-start: 0.2rem;
+  padding: 0.5rem 1rem;
+  border-radius: var(--r-sm);
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 700;
+  font-size: var(--step-0);
+  text-decoration: none;
+  transition: filter 0.15s var(--ease), transform 0.15s var(--ease);
+}
+.support__cta svg { width: 1.05rem; height: 1.05rem; flex: none; }
+.support__cta:hover { filter: brightness(1.08); transform: translateY(-1px); }
+
+.support__handle { font-size: var(--step--1); color: var(--ink-faint); }
+
+/* --------------------------------------------------------------- responsive -- */
+
+@media (max-width: 46rem) {
+  .wire {
+    grid-template-columns: 1fr;
+    gap: calc(var(--gap) * 1.4);
+  }
+  .tiles, .meters { grid-template-columns: minmax(0, 1fr); }
+  .rails { order: 1; }
+  /* در موبایل ریل‌ها عمودی معنا ندارند؛ ساده‌شان می‌کنیم */
+  .rail__label { position: static; inset: auto; justify-content: center; }
+  .rail--down .rail__label { bottom: auto; }
+  .rail__mid { padding-block: 0.4rem; }
+  th, td { padding-inline: 0.7rem; }
+  /* برچسب/مقدار روی هم — ۹rem ستون برچسب در ۳۶۰px جا نمی‌شود */
+  .specs__row { grid-template-columns: minmax(0, 1fr); }
+  .specs__copy { opacity: 1; }   /* هاور در تاچ وجود ندارد */
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+  .rail::after { animation: none; opacity: 0.75; }
+  .feed__dot { animation: none; }
+}
+
+@media print {
+  .controls, .search, .skip-link, .support__cta { display: none; }
+  body { background: #fff; color: #000; }
+  .card, .tile, .link, .ribbon, .support { border-color: #999; box-shadow: none; }
+}

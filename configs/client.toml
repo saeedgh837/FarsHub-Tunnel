@@ -1,0 +1,42 @@
+# ==========================================================
+#  FarsHub Tunnel — Client side
+#  این بخش روی ماشینی اجرا می‌شود که سرویس مقصد آنجاست یا به آن
+#  دسترسی دارد (پشت NAT / فیلتر). هیچ پورتی Listen نمی‌کند و
+#  همیشه خودش به سرور Dial می‌کند.
+#
+#  نصب در: /etc/farshub/client.toml
+#  ویرایش با: farshub edit client
+#  هشدار: نام کلیدها داخل موتور اجرا کامپایل شده — تغییرشان ندهید.
+#         فقط مقادیر را ویرایش کنید.
+# ==========================================================
+
+[client]
+# --- شبکه ---
+remote_addr = "SERVER_IP:3080"    # آدرس سرور؛ دامنه بهتر از IP خام است
+                                  # (اگر IP سرور عوض شود، دامنه خودکار حل می‌شود)
+transport = "tcpmux"              # باید عیناً با server.toml یکسان باشد
+token = "CHANGE_ME"               # باید عیناً با server.toml یکسان باشد
+# edge_ip = "188.114.96.0"        # فقط برای عبور از CDN در transportهای ws*
+
+# --- استخر اتصال و تلاش مجدد ---
+connection_pool = 8               # اتصال‌های پیش‌ساخته؛ تأخیر برقراری را کم می‌کند
+aggressive_pool = false
+retry_interval = 3                # ثانیه؛ فاصله تلاش مجدد بعد از قطعی
+dial_timeout = 10                 # ثانیه
+
+# --- پایداری ---
+keepalive_period = 75
+nodelay = true
+
+# --- Multiplexing (باید با سرور هم‌خوان باشد) ---
+mux_version = 1
+mux_framesize = 32768
+mux_recievebuffer = 4194304
+mux_streambuffer = 65536
+
+# --- مانیتورینگ و لاگ ---
+sniffer = false
+sniffer_log = "/var/log/farshub/traffic.json"
+web_port = 0
+log_level = "warn"
+pprof = false

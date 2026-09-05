@@ -1,0 +1,50 @@
+# ==========================================================
+#  FarsHub Tunnel — Server side
+#  این بخش روی سروری اجرا می‌شود که کاربران به آن وصل می‌شوند
+#  (سرور خارج). پورت‌ها اینجا Listen می‌شوند و کلاینت به اینجا
+#  Dial می‌کند.
+#
+#  نصب در: /etc/farshub/server.toml
+#  ویرایش با: farshub edit server
+#  هشدار: نام کلیدها داخل موتور اجرا کامپایل شده — تغییرشان ندهید.
+#         فقط مقادیر را ویرایش کنید.
+# ==========================================================
+
+[server]
+# --- شبکه ---
+bind_addr = "0.0.0.0:3080"        # پورت تونل؛ کلاینت به این وصل می‌شود
+transport = "tcpmux"              # tcp | tcpmux | ws | wss | wsmux | wssmux | udp
+token = "CHANGE_ME"               # باید با client.toml یکسان باشد (≥32 بایت تصادفی)
+
+# پورت‌هایی که کاربران واقعی به آن وصل می‌شوند
+ports = [
+  # "443",                        # 443 روی سرور → 443 سمت کلاینت
+  # "8443=443",                   # 8443 روی سرور → 443 سمت کلاینت
+  # "2000-2100",                  # بازه پورت
+]
+
+# --- پایداری ---
+heartbeat = 40                    # ثانیه؛ ping پایداری تونل
+keepalive_period = 75             # ثانیه
+channel_size = 2048               # صف داخلی؛ سرریز = drop شدن اتصال جدید
+nodelay = true                    # TCP_NODELAY — تأخیر کمتر، پهنای‌باند کمی کمتر
+accept_udp = false                # تونل کردن UDP روی TCP
+
+# --- Multiplexing (فقط برای transportهای *mux) ---
+mux_con = 8
+mux_version = 1
+mux_framesize = 32768             # 32 KB
+mux_recievebuffer = 4194304       # 4 MB — به‌ازای هر اتصال؛ در RAM کم پایین بیاورید
+mux_streambuffer = 65536          # 64 KB
+
+# --- TLS (اجباری برای wss / wssmux) ---
+# tls_cert = "/etc/farshub/certs/server.crt"
+# tls_key  = "/etc/farshub/certs/server.key"
+
+# --- مانیتورینگ و لاگ ---
+sniffer = false                   # بازرسی ترافیک؛ در بار زیاد سربار CPU دارد
+sniffer_log = "/var/log/farshub/traffic.json"
+web_port = 0                      # 0 = خاموش. پنل هیچ احراز هویتی ندارد؛
+                                  # اگر لازم است، پشت nginx با basic auth بگذارید
+log_level = "warn"                # info مقدار توکن را در خطای mismatch لاگ می‌کند
+pprof = false                     # هرگز در production روشن نکنید
