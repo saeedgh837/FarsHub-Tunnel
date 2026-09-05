@@ -26,27 +26,58 @@ HTML داخل خودش embed شده — با برندینگ آپ‌استریم 
 `<title>Backhaul`). موتور stripped است، پس تزریق این پنل به داخلش عملی نیست.
 دو راه واقعی وجود دارد:
 
-**راه ۱ — سرو جداگانه (بدون دست‌زدن به موتور اجرا).**
-`web_port` را روشن کنید، پنل را با یک وب‌سرور ایستا بالا بیاورید و `/data` را
-با reverse proxy به موتور بدهید:
+**راه ۱ — سرو جداگانه (بدون دست‌زدن به موتور اجرا).** یک دستور:
+
+```bash
+sudo farshub panel-up --sniffer
+```
+
+`web_port` موتور را روشن می‌کند، همان پورت را با فایروال از بیرون می‌بندد،
+nginx را (اگر نباشد) نصب می‌کند، پنل را با `auth_basic` سرو می‌کند، `/stats` و
+`/data` را به موتور پروکسی می‌دهد، `panel.json` را از نو می‌سازد و رمز را چاپ
+می‌کند. `farshub panel-down` همه را برمی‌گرداند. فهرست کامل مسیرهایی که عوض
+می‌شوند در [CLI.md](CLI.md#panel-up-چه-چیزهایی-را-عوض-میکند).
+
+کانفیگی که می‌نویسد، تقریباً همین است:
 
 ```nginx
 server {
-  listen 127.0.0.1:8088;
-  root /var/lib/farshub/web;
-  index index.html;
-  location = /data { proxy_pass http://127.0.0.1:2060/data; }
-  location = /stats { proxy_pass http://127.0.0.1:2060/stats; }
+    listen 8088;
+    listen [::]:8088;             # فقط اگر کرنل IPv6 داشته باشد
+    server_name _;
+
+    root /var/lib/farshub/web;
+    index index.html;
+
+    # موتور اجرا هیچ احراز هویتی ندارد، پس لایه‌ی رمز اینجاست.
+    # از خود ماشین (تونل SSH) بدون رمز باز می‌شود.
+    auth_basic           "FarsHub Tunnel";
+    auth_basic_user_file /etc/nginx/farshub.htpasswd;
+    satisfy any;
+    allow 127.0.0.1;
+    allow ::1;
+    deny  all;
+
+    location = /stats { access_log off; proxy_pass http://127.0.0.1:2060/stats; }
+    location = /data  { access_log off; proxy_pass http://127.0.0.1:2060/data;  }
 }
 ```
 
-`panel.json` فایل ایستاست و همین `root` سروش می‌کند — قاعده‌ی جداگانه لازم ندارد.
+سه نکته درباره‌ی همین قاعده:
 
-خلاصه‌ی همین مراحل را `farshub panel` هم می‌دهد.
+- **`panel.json` فایل ایستاست و همین `root` سروش می‌کند** — قاعده‌ی جداگانه
+  لازم ندارد.
+- **فقط `/stats` و `/data` پروکسی می‌شوند.** بقیه‌ی موتور — از جمله
+  `/debug/pprof/*` — عمداً بیرون می‌ماند.
+- **`access_log off` روی همان دو مسیر.** پنل هر ۲ ثانیه poll می‌کند؛ بدون این،
+  روزی حدود ۸۰ هزار خط لاگ دسترسی روی دیسک می‌نشیند.
 
-**نکته‌ی امنیتی:** پنل داخلی موتور هیچ احراز هویتی ندارد. `web_port` را روی
-`127.0.0.1` نگه دارید و اگر لازم است از بیرون ببینید، جلوی nginx را با
-`auth_basic` + TLS ببندید، یا به‌جای انتشار عمومی از SSH tunnel استفاده کنید:
+**نکته‌ی امنیتی:** پنل داخلی موتور احراز هویتی ندارد و آدرس bindش قابل تنظیم
+نیست — روی همه‌ی اینترفیس‌ها گوش می‌دهد. `panel-up` تنها راه موجود را می‌رود و
+پورتش را با فایروال (IPv4 و IPv6) از بیرون می‌بندد. اگر `web_port` را **دستی**
+روشن کردید، این کار را خودتان بکنید. رمز `auth_basic` هم روی HTTP
+رمزنگاری‌نشده رد می‌شود؛ برای دسترسی امن‌تر TLS بگذارید یا از تونل SSH
+استفاده کنید:
 
 ```bash
 ssh -N -L 8088:127.0.0.1:8088 root@SERVER_IP
@@ -140,7 +171,7 @@ farshub panel-meta server > /var/lib/farshub/web/panel.json
 ```json
 {
   "role": "server",
-  "version": "FarsHub Tunnel 1.0.1 — موتور v1.0.2",
+  "version": "FarsHub Tunnel 1.0.2 — موتور v1.0.2",
   "host": {
     "name": "suitable-purple",
     "ip": "62.60.193.137",
@@ -220,6 +251,8 @@ farshub panel-meta server > /var/lib/farshub/web/panel.json
 > پورتی که هیچ بایتی جابه‌جا نکرده باشد در `/data` **نمی‌آید** — sniffer فقط
 > پورت‌های فعال را ثبت می‌کند. نبودن یک ردیف به‌تنهایی یعنی «بی‌مصرف»، نه
 > «کار نمی‌کند»؛ برای سنجش فورواردینگ از `tcpdump` روی پورت مقصد استفاده کنید.
+> و اگر جدول **کلاً** خالی است، احتمالاً `sniffer` خاموش است:
+> `farshub panel-up --sniffer`.
 
 ### مشخصات میزبان (`host.*`)
 

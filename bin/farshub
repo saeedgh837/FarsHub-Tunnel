@@ -10,7 +10,7 @@
 # ==========================================================================
 set -eu
 
-CLI_VERSION='1.0.1'
+CLI_VERSION='1.0.2'
 BRAND='FarsHub Tunnel'
 SUPPORT='https://t.me/vpsfa'
 
@@ -190,17 +190,26 @@ $BRAND — تونل معکوس برای عبور از NAT و فیلترینگ
   edit [سمت]        باز کردن کانفیگ در ویرایشگر (\$EDITOR)
   token             ساخت توکن تصادفی ۳۲ بایتی
   check [سمت]       بررسی سلامت نصب و هشدارهای امنیتی
-  panel             راهنمای بالا آوردن پنل وب
+  panel-up [سمت]    بالا آوردن پنل وب: nginx + رمز + فایروال، یک‌جا
+  panel-down        برگرداندن همه‌ی تغییرهای panel-up
+  panel             توضیح پنل وب و گزینه‌هایش
   panel-meta [سمت]  ساخت panel.json پنل (نقش، نسخه، مشخصات میزبان)
   version           نسخه‌ی FarsHub و موتور اجرا
   support           راه ارتباط با پشتیبانی
   help              همین متن
+
+گزینه‌های panel-up:
+  --port N          پورت پنل (پیش‌فرض 8088)
+  --user NAME       نام کاربری ورود (پیش‌فرض farshub)
+  --sniffer         روشن کردن sniffer تا جدول پورت‌ها پر شود
+  --new-password    ساخت رمز تازه به‌جای حفظ رمز قبلی
 
 نمونه:
   farshub install server
   farshub token
   farshub edit server
   farshub enable server
+  farshub panel-up --sniffer
   farshub logs -f
 
 پشتیبانی: $SUPPORT
@@ -448,6 +457,7 @@ cmd_install() {
   say '  1) farshub token          # توکن بساز'
   say "  2) farshub edit $side     # توکن و پورت‌ها را بگذار"
   say "  3) farshub enable $side   # راه‌اندازی و اجرای خودکار در boot"
+  say '  4) farshub panel-up       # پنل وب (اختیاری) — nginx + رمز + فایروال'
   say ''
   say 'توکن باید در دو طرف تونل عیناً یکسان باشد.'
 }
@@ -499,8 +509,15 @@ cmd_check() {
     esac
 
     w=$(val web_port)
-    [ -n "$w" ] && [ "$w" != '0' ] &&
-      say "  ⚠ web_port=$w باز است و احراز هویت ندارد — پشت nginx بگذارید"
+    if [ -n "$w" ] && [ "$w" != '0' ]; then
+      # panel-up پورت را با drop-in سرویس از بیرون می‌بندد؛ وجود همان فایل
+      # تفاوت «باز روی اینترنت» و «فقط از خود ماشین» است.
+      if [ -f "$UNIT_DIR/$(side_unit "$side").d/10-firewall.conf" ]; then
+        say "  ✓ web_port=$w روشن است و با فایروال فقط از خود ماشین باز است"
+      else
+        say "  ⚠ web_port=$w باز است و احراز هویت ندارد — «farshub panel-up» ببندیدش"
+      fi
+    fi
 
     [ "$(val pprof)" = 'true' ] &&
       { say '  ✗ pprof=true — روی 0.0.0.0:6060 بدون auth باز می‌شود'
@@ -537,18 +554,416 @@ cmd_panel() {
   say 'نسخه و مشخصات میزبان را نگه می‌دارد — موتور اجرا هیچ‌کدام را گزارش'
   say 'نمی‌کند و بدون این فایل پنل «سمت اجرا نامعلوم» نشان می‌دهد.'
   say ''
-  say 'پنل داخلی موتور اجرا جدا است و برندینگ آپ‌استریم را دارد؛ آن را از'
-  say 'بیرون باز نکنید (احراز هویت ندارد).'
+  say 'برای بالا آوردنش یک دستور کافی است:'
   say ''
-  say 'راه‌اندازی:'
-  say "  1) در $CONF_DIR/*.toml مقدار web_port را روی یک پورت لوکال بگذارید"
-  say "  2) $STATE_DIR/web را با nginx سرو کنید"
-  say '  3) مسیرهای /data و /stats را به web_port پروکسی کنید'
+  say '  farshub panel-up'
+  say ''
+  say 'که nginx را (اگر نباشد) نصب می‌کند، web_port موتور را روشن و همان را'
+  say 'از بیرون می‌بندد، پنل را با auth_basic سرو می‌کند و رمز را چاپ می‌کند.'
+  say 'گزینه‌ها: --port (پیش‌فرض 8088)، --user (پیش‌فرض farshub)، --sniffer'
+  say '(برای پر شدن جدول پورت‌ها)، --new-password.'
+  say ''
+  say 'برگرداندن همه‌ی این تغییرات:  farshub panel-down'
   say ''
   say 'اگر نقش را دستی عوض کردید:'
   say "  farshub panel-meta server > $STATE_DIR/web/panel.json"
   say ''
-  say 'جزئیات و نمونه‌ی کانفیگ nginx: docs/PANEL.md'
+  say 'پنل داخلی خود موتور اجرا چیز دیگری است، برندینگ آپ‌استریم را دارد و'
+  say 'احراز هویت ندارد — panel-up عمداً آن را از بیرون بسته نگه می‌دارد.'
+  say ''
+  say 'جزئیات: docs/PANEL.md'
+}
+
+# ------------------------------------------------------ بالا آوردن پنل --
+# دستی‌کردن این کار چهار مرحله دارد و هر مرحله یک جای اشتباهِ امنیتی: روشن
+# کردن web_port موتور، بستن همان پورت از بیرون، nginx با رمز جلوی پنل، و
+# panel.json. panel-up هر چهار را با هم انجام می‌دهد و panel-down برمی‌گرداند.
+PANEL_STATE="$STATE_DIR/panel.conf"
+HTPASSWD_FILE='/etc/nginx/farshub.htpasswd'
+SITE_NAME='farshub-panel'
+
+# listen [::] روی ماشین بدون IPv6 در bind خطا می‌دهد و کل nginx بالا نمی‌آید.
+have_ipv6() { [ -f /proc/net/if_inet6 ]; }
+
+pkg_install_nginx() {
+  if command -v apt-get >/dev/null 2>&1; then
+    DEBIAN_FRONTEND=noninteractive apt-get update -qq &&
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nginx
+  elif command -v dnf >/dev/null 2>&1;    then dnf install -y -q nginx
+  elif command -v yum >/dev/null 2>&1;    then yum install -y -q nginx
+  elif command -v apk >/dev/null 2>&1;    then apk add --no-cache nginx
+  elif command -v pacman >/dev/null 2>&1; then pacman -Sy --noconfirm nginx
+  else return 127
+  fi
+}
+
+NGINX_FRESH=0
+ensure_nginx() {
+  command -v nginx >/dev/null 2>&1 && return 0
+  say '  nginx نصب نیست — نصبش می‌کنم (چند لحظه)…'
+  pkg_install_nginx >/dev/null 2>&1 ||
+    die 'nginx نصب نشد. دستی نصبش کنید و panel-up را دوباره بزنید.'
+  command -v nginx >/dev/null 2>&1 || die 'نصب nginx ناموفق بود.'
+  NGINX_FRESH=1
+  # سایت پیش‌فرض دبیان روی پورت ۸۰ گوش می‌دهد. اگر چیز دیگری آن پورت را
+  # گرفته باشد nginx اصلاً بالا نمی‌آید و پنل هم بالا نمی‌آید — و صفحه‌ی
+  # «Welcome to nginx» هم چیزی نیست که کاربر خواسته باشد. فقط لینک را
+  # برمی‌داریم، پس با ln -s برگشتنی است. سایت‌های خودِ کاربر دست‌نخورده‌اند،
+  # چون این شاخه فقط وقتی اجرا می‌شود که nginx را همین حالا نصب کرده باشیم.
+  if [ -L /etc/nginx/sites-enabled/default ]; then
+    rm -f /etc/nginx/sites-enabled/default
+    say '  nginx   → سایت پیش‌فرض (پورت ۸۰) غیرفعال شد؛ فایلش در sites-available ماند'
+  fi
+  return 0
+}
+
+# مقدار یک کلید عددی/بولی در TOML؛ کامنت انتهای خط دست‌نخورده می‌ماند.
+set_conf_val() {                        # $1=فایل  $2=کلید  $3=مقدار
+  if grep -q "^[[:space:]]*$2[[:space:]]*=" "$1"; then
+    sed -i "s|^\([[:space:]]*$2[[:space:]]*=[[:space:]]*\)[^[:space:]#]*|\1$3|" "$1"
+  else
+    printf '%s = %s\n' "$2" "$3" >>"$1"
+  fi
+}
+
+port_busy() {
+  command -v ss >/dev/null 2>&1 || return 1
+  ss -lnt 2>/dev/null | awk 'NR>1{print $4}' | grep -qE "[:.]$1\$"
+}
+
+ufw_active() {
+  command -v ufw >/dev/null 2>&1 || return 1
+  ufw status 2>/dev/null | grep -q 'Status: active'
+}
+
+# رمز apr1 — با openssl، چون htpasswd روی نصب معمولی نیست (apache2-utils).
+htpasswd_line() {                       # $1=کاربر  $2=رمز
+  if command -v openssl >/dev/null 2>&1 &&
+     h=$(openssl passwd -apr1 "$2" 2>/dev/null) && [ -n "$h" ]; then
+    printf '%s:%s\n' "$1" "$h"
+  elif command -v htpasswd >/dev/null 2>&1; then
+    htpasswd -nbB "$1" "$2"
+  else
+    die 'نه openssl هست و نه htpasswd — رمز پنل ساخته نشد.'
+  fi
+}
+
+gen_pass() {
+  if command -v openssl >/dev/null 2>&1; then
+    openssl rand -base64 32 | tr -dc 'A-Za-z0-9' | cut -c1-18
+  elif [ -r /dev/urandom ] && command -v od >/dev/null 2>&1; then
+    od -An -tx1 -N9 /dev/urandom | tr -d ' \n'
+  else
+    die 'راهی برای ساخت رمز تصادفی نبود — با --user و رمز دستی پیش بروید.'
+  fi
+}
+
+# قاعده‌ی فایروال به‌صورت drop-in سرویس نوشته می‌شود، نه iptables دستی: این‌طور
+# دقیقاً تا وقتی موتور گوش می‌دهد اعمال است، در هر boot از نو ساخته می‌شود (پس
+# به iptables-save وابسته نیست) و فایل یونیت shipped دست‌نخورده می‌ماند.
+fw_pair() {                             # $1=ابزار  $2=پورت  $3=loopback
+  printf 'ExecStartPost=/bin/sh -c "%s -C INPUT ! -s %s -p tcp --dport %s -j DROP 2>/dev/null || %s -I INPUT ! -s %s -p tcp --dport %s -j DROP"\n' \
+    "$1" "$3" "$2" "$1" "$3" "$2"
+  printf 'ExecStopPost=-/bin/sh -c "%s -D INPUT ! -s %s -p tcp --dport %s -j DROP 2>/dev/null || true"\n' \
+    "$1" "$3" "$2"
+}
+
+write_fw_dropin() {                     # $1=web_port
+  cat <<EOF
+# ساخته‌ی «farshub panel-up» — با «farshub panel-down» حذف می‌شود.
+# پنل داخلی موتور اجرا روی همه‌ی اینترفیس‌ها گوش می‌دهد و احراز هویت ندارد؛
+# آدرس bind قابل تنظیم نیست، پس تنها راه بستنش فایروال است. قاعده در هر boot
+# دوباره اعمال می‌شود. اگر iptables خراب باشد سرویس بالا نمی‌آید — عمدی است:
+# تونلِ خوابیده بهتر از پنلِ بی‌رمزِ باز روی اینترنت است.
+[Service]
+EOF
+  fw_pair "$IPT" "$1" '127.0.0.1/32'
+  [ -n "$IPT6" ] && fw_pair "$IPT6" "$1" '::1/128'
+  return 0
+}
+
+write_site() {                          # $1=پورت پنل  $2=web_port
+  cat <<EOF
+# ساخته‌ی «farshub panel-up» — با «farshub panel-down» حذف می‌شود.
+# دست‌نویسی نکنید؛ اجرای بعدی panel-up بازنویسی‌اش می‌کند.
+server {
+    listen $1;
+EOF
+  have_ipv6 && printf '    listen [::]:%s;\n' "$1"
+  cat <<EOF
+    server_name _;
+
+    root $STATE_DIR/web;
+    index index.html;
+
+    # موتور اجرا هیچ احراز هویتی ندارد، پس لایه‌ی رمز اینجاست.
+    # از خود ماشین (تونل SSH) بدون رمز باز می‌شود.
+    auth_basic           "$BRAND";
+    auth_basic_user_file $HTPASSWD_FILE;
+    satisfy any;
+    allow 127.0.0.1;
+    allow ::1;
+    deny  all;
+
+    # فقط همین دو مسیر پروکسی می‌شوند؛ بقیه‌ی موتور — از جمله /debug/pprof —
+    # عمداً بیرون می‌ماند. پنل هر ۲ ثانیه poll می‌کند، پس لاگ دسترسی خاموش است
+    # وگرنه روزی ۸۰ هزار خط روی دیسک می‌نشیند.
+    location = /stats {
+        access_log off;
+        proxy_pass http://127.0.0.1:$2/stats;
+    }
+    location = /data {
+        access_log off;
+        proxy_pass http://127.0.0.1:$2/data;
+    }
+}
+EOF
+}
+
+cmd_panel_up() {
+  side=''; pport=8088; puser='farshub'; wport=''; sniff=0; newpw=0
+  while [ $# -gt 0 ]; do
+    case $1 in
+      --port)         [ $# -ge 2 ] || die '--port مقدار می‌خواهد.'; pport=$2; shift ;;
+      --port=*)       pport=${1#--port=} ;;
+      --user)         [ $# -ge 2 ] || die '--user مقدار می‌خواهد.'; puser=$2; shift ;;
+      --user=*)       puser=${1#--user=} ;;
+      --web-port)     [ $# -ge 2 ] || die '--web-port مقدار می‌خواهد.'; wport=$2; shift ;;
+      --web-port=*)   wport=${1#--web-port=} ;;
+      --sniffer)      sniff=1 ;;
+      --new-password) newpw=1 ;;
+      server|s)       side=server ;;
+      client|c)       side=client ;;
+      *)              die "گزینه‌ی ناشناس: $1" ;;
+    esac
+    shift
+  done
+  [ -n "$side" ] || side=$(guess_side panel-up)
+
+  need_root
+  have_systemd ||
+    die 'panel-up به systemd نیاز دارد (قاعده‌ی فایروال روی سرویس سوار می‌شود).'
+  conf=$(side_conf "$side")
+  [ -f "$conf" ] || die "کانفیگ نیست: $conf — اول «farshub install $side»."
+  [ -d "$STATE_DIR/web" ] ||
+    die "پنل در $STATE_DIR/web نیست — «farshub install $side» را دوباره بزنید."
+  case $pport in ''|*[!0-9]*) die "پورت پنل نامعتبر: «$pport»" ;; esac
+  case $puser in ''|*[!A-Za-z0-9._-]*) die "نام کاربری نامعتبر: «$puser»" ;; esac
+
+  # موتور اجرا آدرس bind پنل داخلی‌اش را قابل تنظیم نکرده و روی همه‌ی
+  # اینترفیس‌ها گوش می‌دهد. بدون iptables راهی برای بستنش نیست.
+  IPT=$(command -v iptables 2>/dev/null) || IPT=''
+  [ -n "$IPT" ] || die 'iptables پیدا نشد؛ بدون آن پنلِ بی‌رمزِ موتور از بیرون باز می‌ماند. نصبش کنید و دوباره بزنید.'
+  IPT6=''
+  if have_ipv6; then IPT6=$(command -v ip6tables 2>/dev/null) || IPT6=''; fi
+
+  # web_port: صریح > مقدار فعلی کانفیگ > 2060
+  cur=$(conf_val "$conf" web_port) || cur=''
+  if [ -z "$wport" ]; then
+    if [ -n "$cur" ] && [ "$cur" != '0' ]; then wport=$cur; else wport=2060; fi
+  fi
+  case $wport in ''|*[!0-9]*) die "web_port نامعتبر: «$wport»" ;; esac
+  [ "$wport" = "$pport" ] && die "پورت پنل و web_port نمی‌توانند یکی باشند ($pport)."
+
+  if [ -d /etc/nginx/sites-available ] && [ -d /etc/nginx/sites-enabled ]; then
+    site="/etc/nginx/sites-available/$SITE_NAME"
+    link="/etc/nginx/sites-enabled/$SITE_NAME"
+  elif [ -d /etc/nginx/conf.d ]; then
+    site="/etc/nginx/conf.d/$SITE_NAME.conf"; link=''
+  else
+    site=''; link=''
+  fi
+
+  say "$BRAND — بالا آوردن پنل سمت $side"
+  say ''
+
+  ensure_nginx
+  # مسیر nginx تازه نصب‌شده تا حالا وجود نداشت، پس بعد از نصب دوباره بسنج.
+  if [ -z "$site" ]; then
+    if [ -d /etc/nginx/sites-available ] && [ -d /etc/nginx/sites-enabled ]; then
+      site="/etc/nginx/sites-available/$SITE_NAME"
+      link="/etc/nginx/sites-enabled/$SITE_NAME"
+    elif [ -d /etc/nginx/conf.d ]; then
+      site="/etc/nginx/conf.d/$SITE_NAME.conf"; link=''
+    else
+      die 'ساختار /etc/nginx شناسایی نشد (نه sites-available و نه conf.d).'
+    fi
+  fi
+  if [ ! -f "$site" ] && port_busy "$pport"; then
+    die "پورت $pport اشغال است — با --port پورت دیگری بدهید."
+  fi
+
+  # ۱) موتور: پنل داخلی روشن شود تا چیزی برای پروکسی‌کردن باشد.
+  set_conf_val "$conf" web_port "$wport"
+  say "  موتور   → web_port=$wport"
+  if [ "$sniff" = 1 ]; then
+    set_conf_val "$conf" sniffer true
+    say '  موتور   → sniffer=true (جدول پورت‌ها پر می‌شود؛ کمی CPU می‌گیرد)'
+  fi
+
+  # ۲) فایروال، پیش از restart تا پورت هرگز بی‌محافظ باز نشود.
+  unit=$(side_unit "$side")
+  install -d -m755 "$UNIT_DIR/$unit.d"
+  write_fw_dropin "$wport" >"$UNIT_DIR/$unit.d/10-firewall.conf"
+  chmod 644 "$UNIT_DIR/$unit.d/10-firewall.conf"
+  systemctl daemon-reload
+  systemctl restart "$unit"
+  if [ -n "$IPT6" ]; then
+    say "  فایروال → پورت $wport فقط از خود ماشین (IPv4+IPv6)"
+  else
+    say "  فایروال → پورت $wport فقط از خود ماشین (IPv4)"
+  fi
+
+  # ۳) رمز. اگر کاربر از قبل هست، رمزش حفظ می‌شود — چرخاندن بی‌خبرِ رمز
+  # یعنی اجرای دوباره‌ی panel-up دسترسی کسی را قطع کند.
+  pw=''
+  if [ "$newpw" = 0 ] && [ -f "$HTPASSWD_FILE" ] &&
+     grep -q "^$puser:" "$HTPASSWD_FILE"; then
+    say "  رمز     → کاربر «$puser» از قبل بود، رمز قبلی حفظ شد"
+  else
+    pw=$(gen_pass)
+    line=$(htpasswd_line "$puser" "$pw")
+    if [ -f "$HTPASSWD_FILE" ]; then
+      grep -v "^$puser:" "$HTPASSWD_FILE" >"$HTPASSWD_FILE.new" || true
+      printf '%s\n' "$line" >>"$HTPASSWD_FILE.new"
+      mv "$HTPASSWD_FILE.new" "$HTPASSWD_FILE"
+    else
+      printf '%s\n' "$line" >"$HTPASSWD_FILE"
+    fi
+    chmod 640 "$HTPASSWD_FILE"
+    chgrp www-data "$HTPASSWD_FILE" 2>/dev/null ||
+      chgrp nginx "$HTPASSWD_FILE" 2>/dev/null || chmod 644 "$HTPASSWD_FILE"
+    say "  رمز     → $HTPASSWD_FILE"
+  fi
+
+  # ۴) nginx. اگر کانفیگ پذیرفته نشد، برمی‌گردانیم — نه اینکه nginx زنده را بشکنیم.
+  had_site=0; [ -f "$site" ] && had_site=1
+  if [ "$had_site" = 1 ]; then cp "$site" "$site.bak"; fi
+  write_site "$pport" "$wport" >"$site"
+  [ -n "$link" ] && ln -sf "$site" "$link"
+  if ! nginx -t >/dev/null 2>&1; then
+    nginx -t 2>&1 | sed 's/^/    /'
+    if [ "$had_site" = 1 ]; then mv "$site.bak" "$site"; else
+      rm -f "$site"; [ -n "$link" ] && rm -f "$link"; fi
+    die 'nginx کانفیگ را نپذیرفت — به حالت قبل برگشت.'
+  fi
+  rm -f "$site.bak"
+  systemctl enable nginx >/dev/null 2>&1 || true
+  if ! systemctl reload nginx >/dev/null 2>&1; then
+    if ! systemctl restart nginx >/dev/null 2>&1; then
+      systemctl status nginx --no-pager 2>&1 | sed -n '1,12p' | sed 's/^/    /'
+      die 'nginx بالا نیامد — احتمالاً یکی از سایت‌هایش با سرویس دیگری روی همان پورت تعارض دارد.'
+    fi
+  fi
+  say "  nginx   → $site"
+
+  if ufw_active; then
+    ufw allow "$pport/tcp" >/dev/null 2>&1 && say "  ufw     → پورت $pport باز شد"
+  fi
+
+  # ۵) panel.json تا نقش «نامعلوم» نشود (web_port عوض شده، پس از نو ساخته شود).
+  panel_json "$side" >"$STATE_DIR/web/panel.json"
+  chmod 644 "$STATE_DIR/web/panel.json"
+
+  printf 'side=%s\npanel_port=%s\nweb_port=%s\nsite=%s\nlink=%s\n' \
+    "$side" "$pport" "$wport" "$site" "$link" >"$PANEL_STATE"
+  chmod 600 "$PANEL_STATE"
+
+  ip=$(host_ip); [ -n "$ip" ] || ip='SERVER_IP'
+  say ''
+  say 'پنل بالا آمد.'
+  say ''
+  say "  آدرس   : http://$ip:$pport/"
+  say "  کاربر  : $puser"
+  if [ -n "$pw" ]; then
+    say "  رمز    : $pw"
+    say ''
+    say 'رمز جای دیگری ذخیره نشده (فقط hash روی دیسک است) — همین حالا نگهش دارید.'
+    say 'اگر گمش کردید: farshub panel-up --new-password'
+  fi
+  say ''
+  say '⚠ ارتباط HTTP است، پس رمز رمزنگاری‌نشده رد می‌شود. برای دسترسی امن‌تر'
+  say '  یا TLS بگذارید یا از تونل SSH استفاده کنید:'
+  say "    ssh -N -L $pport:127.0.0.1:$pport root@$ip"
+  if [ "$sniff" = 0 ] && [ "$(conf_val "$conf" sniffer)" != 'true' ]; then
+    say ''
+    say '  جدول پورت‌ها خالی می‌ماند: sniffer خاموش است.'
+    say '  برای پر شدنش: farshub panel-up --sniffer'
+  fi
+  if grep -q '^[[:space:]]*token[[:space:]]*=[[:space:]]*"CHANGE_ME"' "$conf"; then
+    say ''
+    say '  ⚠ توکن هنوز CHANGE_ME است — تونل وصل نمی‌شود. «farshub token» و بعد edit.'
+  fi
+  say ''
+  say "برگرداندن همه‌ی این تغییرات: farshub panel-down"
+  if [ "$NGINX_FRESH" = 1 ]; then
+    say 'خودِ nginx را panel-down حذف نمی‌کند؛ فقط سایت پنل را برمی‌دارد.'
+  fi
+}
+
+cmd_panel_down() {
+  need_root
+  p_side=''; p_port=''; p_web=''; p_site=''; p_link=''
+  if [ -f "$PANEL_STATE" ]; then
+    # shellcheck source=/dev/null
+    . "$PANEL_STATE"
+    p_side=${side:-}; p_port=${panel_port:-}; p_web=${web_port:-}
+    p_site=${site:-}; p_link=${link:-}
+  fi
+  [ -n "$p_side" ] || p_side=${1:-}
+  [ -n "$p_side" ] || p_side=$(guess_side panel-down)
+  case "$p_side" in server|s) p_side=server ;; client|c) p_side=client ;;
+    *) die "سمت نامعتبر: «$p_side»" ;; esac
+
+  say "$BRAND — خواباندن پنل سمت $p_side"
+  say ''
+
+  # nginx اول: تا پنل جواب می‌دهد، کسی وسط کار قطعی نبیند.
+  for f in "$p_site" "/etc/nginx/sites-available/$SITE_NAME" \
+           "/etc/nginx/conf.d/$SITE_NAME.conf"; do
+    [ -n "$f" ] && [ -f "$f" ] && { rm -f "$f"; say "  nginx   ← $f حذف شد"; }
+  done
+  for f in "$p_link" "/etc/nginx/sites-enabled/$SITE_NAME"; do
+    [ -n "$f" ] && [ -L "$f" ] && rm -f "$f"
+  done
+  if command -v nginx >/dev/null 2>&1 && nginx -t >/dev/null 2>&1; then
+    systemctl reload nginx >/dev/null 2>&1 || true
+  fi
+  if [ -f "$HTPASSWD_FILE" ]; then rm -f "$HTPASSWD_FILE"; say '  رمز     ← حذف شد'; fi
+
+  unit=$(side_unit "$p_side")
+  dropin="$UNIT_DIR/$unit.d/10-firewall.conf"
+  conf=$(side_conf "$p_side")
+  was=$(systemctl is-active "$unit" 2>/dev/null) || was=''
+
+  # stop پیش از حذف drop-in، وگرنه ExecStopPost اجرا نمی‌شود و قاعده
+  # تا reboot در iptables می‌ماند.
+  if have_systemd && [ -f "$dropin" ]; then
+    systemctl stop "$unit" >/dev/null 2>&1 || true
+    rm -f "$dropin"
+    rmdir "$UNIT_DIR/$unit.d" 2>/dev/null || true
+    systemctl daemon-reload
+    say '  فایروال ← قاعده و drop-in حذف شد'
+  fi
+
+  if [ -f "$conf" ]; then
+    set_conf_val "$conf" web_port 0
+    say '  موتور   ← web_port=0'
+  fi
+
+  if have_systemd && [ "$was" = 'active' ]; then
+    systemctl start "$unit"
+    say '  سرویس   ← دوباره بالا آمد'
+  fi
+
+  if [ -n "$p_port" ] && ufw_active; then
+    ufw delete allow "$p_port/tcp" >/dev/null 2>&1 || true
+  fi
+
+  rm -f "$PANEL_STATE"
+  say ''
+  say 'پنل خوابید. فایل‌های پنل و panel.json سر جایشان ماندند؛'
+  say 'با «farshub panel-up» دوباره بالا می‌آید.'
 }
 
 # panel.json را روی stdout می‌سازد تا بتوان جایی که پنل سرو می‌شود ریدایرکتش کرد.
@@ -576,6 +991,8 @@ case "$cmd" in
   token)                   cmd_token ;;
   check|doctor)            cmd_check "$@" ;;
   panel)                   cmd_panel ;;
+  panel-up|panel_up)       cmd_panel_up "$@" ;;
+  panel-down|panel_down)   cmd_panel_down "$@" ;;
   panel-meta|panel_meta)   cmd_panel_meta "$@" ;;
   version|-v|--version)    cmd_version ;;
   support)                 cmd_support ;;
