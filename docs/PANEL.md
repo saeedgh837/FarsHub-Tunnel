@@ -32,6 +32,12 @@ HTML داخل خودش embed شده — با برندینگ آپ‌استریم 
 sudo farshub panel-up --sniffer
 ```
 
+رمز تصادفی ساخته و چاپ می‌شود. برای کاربر و رمز دلخواه:
+
+```bash
+sudo farshub panel-up --user admin --password MyPass123 --sniffer
+```
+
 `web_port` موتور را روشن می‌کند، همان پورت را با فایروال از بیرون می‌بندد،
 nginx را (اگر نباشد) نصب می‌کند، پنل را با `auth_basic` سرو می‌کند، `/stats` و
 `/data` را به موتور پروکسی می‌دهد، `panel.json` را از نو می‌سازد و رمز را چاپ
@@ -171,7 +177,7 @@ farshub panel-meta server > /var/lib/farshub/web/panel.json
 ```json
 {
   "role": "server",
-  "version": "FarsHub Tunnel 1.0.2 — موتور v1.0.2",
+  "version": "FarsHub Tunnel 1.0.3 — موتور v1.0.3",
   "host": {
     "name": "suitable-purple",
     "ip": "62.60.193.137",
