@@ -202,6 +202,7 @@ $BRAND — تونل معکوس برای عبور از NAT و فیلترینگ
   status [سمت]      وضعیت سرویس و خلاصه‌ی کانفیگ
   logs [سمت] [-n N] آخرین رویدادها (پیش‌فرض ۵۰ خط)؛ با -f زنده دنبال کن
   config [سمت]      نمایش مسیر و محتوای کانفیگ
+  apply-config <سمت> نوشتن کانفیگ از stdin (JSON یا خطوط «کلید=مقدار»)
   edit [سمت]        باز کردن کانفیگ در ویرایشگر (\$EDITOR)
   token             ساخت توکن تصادفی ۳۲ بایتی
   check [سمت]       بررسی سلامت نصب و هشدارهای امنیتی
@@ -402,8 +403,12 @@ cmd_config() {
   [ -f "$conf" ] || die "کانفیگ نیست: $conf"
   say "# $conf"
   say ''
-  # token را ماسک می‌کنیم تا در اسکرین‌شات و paste لو نرود.
-  sed 's/^\([[:space:]]*token[[:space:]]*=[[:space:]]*\).*/\1"********"   # مخفی شده/' "$conf"
+  # توکن ماسک می‌شود، ولی جای‌نگهدار CHANGE_ME نه: راز نیست، و دیدنش تنها
+  # راهی است که پنل بفهمد توکن هنوز تنظیم نشده (توکن واقعی هیچ‌وقت بیرون
+  # نمی‌رود، پس طولش هم قابل سنجش نیست).
+  # «b» بی‌برچسب یعنی از اسکریپت بیرون بزن، پس خط CHANGE_ME به ماسک نمی‌رسد.
+  sed '/^[[:space:]]*token[[:space:]]*=[[:space:]]*"CHANGE_ME"/b
+       s/^\([[:space:]]*token[[:space:]]*=[[:space:]]*\).*/\1"********"   # مخفی شده/' "$conf"
 }
 
 cmd_edit() {
@@ -747,6 +752,309 @@ set_conf_val() {                        # $1=فایل  $2=کلید  $3=مقدا�
   else
     printf '%s = %s\n' "$2" "$3" >>"$1"
   fi
+}
+
+# ---------------------------------------------------- اعتبارسنجی کانفیگ --
+# فهرست کلیدها بسته است: در موتور کامپایل شده‌اند و عوض نمی‌شوند
+# (docs/UPSTREAM-BACKHAUL.md). هر کلید یک نوع و یک بازه دارد.
+#
+# چرا این‌قدر سخت‌گیر: مقدار مستقیم داخل الگوی sed می‌نشیند، پس مجموعه‌ی
+# نویسه‌های هر نوع طوری بسته شده که «\» و «&» و «|» و گیومه هیچ‌وقت رد نشوند.
+# تزریق sed اینجا با ساختار غیرممکن است، نه با escape کردن.
+
+TRANSPORTS='tcp tcpmux ws wss wsmux wssmux udp'
+LOG_LEVELS='panic fatal error warn info debug trace'
+
+valid_int() {                           # $1=مقدار $2=کمینه $3=بیشینه
+  case $1 in ''|*[!0-9]*) return 1 ;; esac
+  [ ${#1} -le 10 ] || return 1
+  [ "$1" -ge "$2" ] && [ "$1" -le "$3" ]
+}
+
+valid_enum() {                          # $1=مقدار $2=فهرست جدا با فاصله
+  for v in $2; do [ "$1" = "$v" ] && return 0; done
+  return 1
+}
+
+valid_bool() { [ "$1" = true ] || [ "$1" = false ]; }
+
+valid_token() {
+  printf '%s' "$1" | grep -Eq '^[A-Za-z0-9._~-]{32,256}$'
+}
+
+valid_path() {
+  [ -z "$1" ] && return 0             # "" یعنی تنظیم‌نشده، مجاز است
+  printf '%s' "$1" | grep -Eq '^/[A-Za-z0-9._/-]{1,255}$'
+}
+
+valid_ipv4() {
+  printf '%s' "$1" | grep -Eq '^[0-9]{1,3}(\.[0-9]{1,3}){3}$' || return 1
+  for o in $(printf '%s' "$1" | tr '.' ' '); do
+    [ "$o" -le 255 ] || return 1
+  done
+  return 0
+}
+
+valid_addr() {                          # host:port — host می‌تواند خالی باشد
+  printf '%s' "$1" | grep -Eq '^[A-Za-z0-9_.:-]{0,253}:[0-9]{1,5}$' || return 1
+  valid_int "${1##*:}" 1 65535
+}
+
+# ردیف ports:  [bindip:]port[-port][= یا :][remoteip:]port
+valid_port_row() {
+  printf '%s' "$1" | grep -Eq \
+    '^([0-9]{1,3}(\.[0-9]{1,3}){3}:)?[0-9]{1,5}(-[0-9]{1,5})?([=:]([0-9]{1,3}(\.[0-9]{1,3}){3}:)?[0-9]{1,5})?$' ||
+    return 1
+  # اکتت‌های IP جدا سنجیده می‌شوند، چون regex بالا ۹۹۹ را هم می‌پذیرد
+  for ip in $(printf '%s' "$1" | grep -Eo '[0-9]{1,3}(\.[0-9]{1,3}){3}'); do
+    valid_ipv4 "$ip" || return 1
+  done
+  # هر عددی که جزء IP نیست باید پورت معتبر باشد
+  rest=$(printf '%s' "$1" | sed -E 's/[0-9]{1,3}(\.[0-9]{1,3}){3}//g')
+  for p in $(printf '%s' "$rest" | tr -c '0-9' ' '); do
+    valid_int "$p" 1 65535 || return 1
+  done
+  case $1 in
+    *-*)
+      lo=${1%%-*}; lo=${lo##*:}
+      hi=${1#*-}; hi=${hi%%[=:]*}
+      [ "$lo" -le "$hi" ] || return 1
+      ;;
+  esac
+  return 0
+}
+
+# نوع و بازه‌ی هر کلید. خروجی: «نوع کمینه بیشینه» یا خالی اگر کلید برای این
+# سمت وجود ندارد. مقادیر از docs/UPSTREAM-BACKHAUL.md آمده‌اند.
+key_spec() {                            # $1=سمت  $2=کلید
+  case "$2" in
+    # هر دو سمت
+    transport)         printf 'enum\n' ;;
+    token)             printf 'token\n' ;;
+    keepalive_period)  printf 'int 1 3600\n' ;;
+    nodelay)           printf 'bool\n' ;;
+    sniffer)           printf 'bool\n' ;;
+    sniffer_log)       printf 'path\n' ;;
+    web_port)          printf 'int 0 65535\n' ;;
+    log_level)         printf 'level\n' ;;
+    pprof)             printf 'bool\n' ;;
+    mux_version)       printf 'int 1 2\n' ;;
+    mux_framesize)     printf 'int 4096 1048576\n' ;;
+    mux_recievebuffer) printf 'int 65536 67108864\n' ;;
+    mux_streambuffer)  printf 'int 16384 16777216\n' ;;
+    tls_cert)          printf 'path\n' ;;
+    tls_key)           printf 'path\n' ;;
+    # فقط سرور
+    bind_addr)         [ "$1" = server ] && printf 'addr\n' ;;
+    ports)             [ "$1" = server ] && printf 'ports\n' ;;
+    heartbeat)         [ "$1" = server ] && printf 'int 1 300\n' ;;
+    channel_size)      [ "$1" = server ] && printf 'int 64 65536\n' ;;
+    accept_udp)        [ "$1" = server ] && printf 'bool\n' ;;
+    mux_con)           [ "$1" = server ] && printf 'int 1 64\n' ;;
+    # فقط کلاینت
+    remote_addr)       [ "$1" = client ] && printf 'remote\n' ;;
+    edge_ip)           [ "$1" = client ] && printf 'ip\n' ;;
+    connection_pool)   [ "$1" = client ] && printf 'int 1 1024\n' ;;
+    aggressive_pool)   [ "$1" = client ] && printf 'bool\n' ;;
+    retry_interval)    [ "$1" = client ] && printf 'int 1 300\n' ;;
+    dial_timeout)      [ "$1" = client ] && printf 'int 1 300\n' ;;
+  esac
+  return 0
+}
+
+# مقدار را می‌سنجد و شکل TOML‌اش را چاپ می‌کند (رشته‌ها با گیومه). خطا ⇒ die.
+toml_value() {                          # $1=سمت  $2=کلید  $3=مقدار
+  spec=$(key_spec "$1" "$2")
+  [ -n "$spec" ] || die "کلید ناشناس یا مربوط به سمت دیگر: «$2»"
+  # shellcheck disable=SC2086
+  set -- "$1" "$2" "$3" $spec
+  case $4 in
+    enum)  valid_enum "$3" "$TRANSPORTS" || die "transport نامعتبر: «$3» (یکی از: $TRANSPORTS)"
+           printf '"%s"\n' "$3" ;;
+    level) valid_enum "$3" "$LOG_LEVELS" || die "log_level نامعتبر: «$3» (یکی از: $LOG_LEVELS)"
+           printf '"%s"\n' "$3" ;;
+    token) valid_token "$3" || die 'توکن باید ۳۲ تا ۲۵۶ نویسه از [A-Za-z0-9._~-] باشد.'
+           printf '"%s"\n' "$3" ;;
+    bool)  valid_bool "$3" || die "«$2» باید true یا false باشد، نه «$3»"
+           printf '%s\n' "$3" ;;
+    int)   valid_int "$3" "$5" "$6" || die "«$2» باید عددی بین $5 و $6 باشد، نه «$3»"
+           printf '%s\n' "$3" ;;
+    path)  valid_path "$3" || die "«$2» باید مسیر مطلق بدون فاصله باشد: «$3»"
+           printf '"%s"\n' "$3" ;;
+    ip)    [ -z "$3" ] || valid_ipv4 "$3" || die "«$2» باید IPv4 باشد: «$3»"
+           printf '"%s"\n' "$3" ;;
+    addr)  valid_addr "$3" || die "«$2» باید host:port با پورت ۱ تا ۶۵۵۳۵ باشد: «$3»"
+           printf '"%s"\n' "$3" ;;
+    remote)
+           valid_addr "$3" || die "«$2» باید host:port با پورت ۱ تا ۶۵۵۳۵ باشد: «$3»"
+           case $3 in
+             :*|SERVER_IP:*) die 'remote_addr باید نشانی واقعی سرور باشد، نه جای‌نگهدار.' ;;
+           esac
+           printf '"%s"\n' "$3" ;;
+    *)     die "نوع ناشناخته برای «$2»" ;;
+  esac
+}
+
+# جایگزینی کل بلوک ports. کامنت‌های داخلش (نمونه‌های کانفیگ ارسالی) نگه
+# داشته می‌شوند — مستنداتی هستند که کاربر بعداً لازمش دارد.
+set_conf_ports() {                      # $1=فایل  $2..=ردیف‌ها
+  f=$1
+  shift
+  keep=$(sed -n '/^[[:space:]]*ports[[:space:]]*=[[:space:]]*\[/,/\]/p' "$f" 2>/dev/null |
+           grep -E '^[[:space:]]*#' || true)
+  rows=''
+  for r in "$@"; do rows="$rows    \"$r\",
+"; done
+  if [ -z "$rows" ] && [ -z "$keep" ]; then
+    block='ports = [ ]
+'
+  else
+    block="ports = [
+${keep:+$keep
+}$rows]
+"
+  fi
+  awk -v block="$block" '
+    BEGIN { done = 0; inside = 0 }
+    !done && !inside && /^[ \t]*ports[ \t]*=[ \t]*\[/ {
+      printf "%s", block
+      if ($0 ~ /\]/) { done = 1; next }
+      inside = 1
+      next
+    }
+    inside { if ($0 ~ /\]/) { inside = 0; done = 1 } ; next }
+    { print }
+    END { if (!done) printf "%s", block }
+  ' "$f" >"$f.ports.$$" && mv "$f.ports.$$" "$f"
+}
+
+# --------------------------------------------------------- apply-config --
+# تنها نویسنده‌ی کانفیگ. دو پاس: اول همه چیز سنجیده می‌شود، بعد نوشته —
+# پس کانفیگ نیم‌معتبر هرگز روی دیسک نمی‌رود. جایگزینی با mv در همان
+# filesystem اتمیک است.
+cmd_apply_config() {
+  side=${1:-}
+  [ -n "$side" ] || die 'سمت را بگویید: farshub apply-config server|client' 2
+  case "$side" in server|s) side=server ;; client|c) side=client ;;
+    *) die "سمت نامعتبر: «$side»" 2 ;; esac
+  conf=$(side_conf "$side")
+  [ -f "$conf" ] || die "کانفیگ نیست: $conf — اول «farshub install $side»."
+  need_write "$CONF_DIR"
+
+  raw=$(cat)
+  # JSON یا خطوط key=value. JSON را python به خطوط تبدیل می‌کند؛ خودِ CLI
+  # وابستگی نمی‌گیرد، چون شکل خطی بدون python کار می‌کند.
+  case $raw in
+    [[:space:]]*\{*|\{*)
+      py=''
+      # با اجرا سنجیده می‌شود، نه با command -v: روی ویندوز «python3» یک
+      # alias فروشگاه مایکروسافت است که در PATH هست ولی اجرا نمی‌شود.
+      for c in python3 python py; do
+        "$c" -c 'import json' >/dev/null 2>&1 && { py=$c; break; }
+      done
+      [ -n "$py" ] ||
+        die 'JSON خواندن python3 می‌خواهد. شکل بدون وابستگی: خطوط «کلید=مقدار».'
+      # stderr هم گرفته می‌شود، وگرنه پیام خطای python به die نمی‌رسد.
+      lines=$(printf '%s' "$raw" | "$py" -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except ValueError as e:
+    sys.exit("JSON نامعتبر: %s" % e)
+if not isinstance(d, dict):
+    sys.exit("JSON باید یک شیء باشد.")
+out = []
+for k, v in d.items():
+    if isinstance(v, list):
+        if not v:
+            out.append("%s=" % k)
+        for item in v:
+            out.append("%s+=%s" % (k, item))
+    elif isinstance(v, bool):
+        out.append("%s=%s" % (k, "true" if v else "false"))
+    elif v is None:
+        out.append("%s=" % k)
+    else:
+        out.append("%s=%s" % (k, v))
+sys.stdout.write("\n".join(out))
+' 2>&1) || die "$lines"
+      ;;
+    *) lines=$raw ;;
+  esac
+
+  # ------- پاس یکم: سنجیدن. هیچ نوشتنی در این پاس نیست.
+  pending=''                            # «کلید<TAB>مقدارTOML» به‌ازای هر خط
+  rows=''                               # ردیف‌های ports
+  has_ports=0
+  printf '%s\n' "$lines" | tr -d '\r' >"$conf.in.$$"
+  while IFS= read -r line; do
+    case $line in ''|'#'*) continue ;; esac
+    case $line in
+      *'+='*)
+        k=${line%%+=*}; v=${line#*+=}
+        [ "$k" = ports ] || die "«+=» فقط برای ports است، نه «$k»"
+        [ -n "$(key_spec "$side" ports)" ] || die 'سمت کلاینت کلید ports ندارد.'
+        valid_port_row "$v" || die "ردیف ports نامعتبر: «$v»"
+        rows="$rows$v
+"
+        has_ports=1
+        ;;
+      *'='*)
+        k=${line%%=*}; v=${line#*=}
+        case $k in ''|*[!a-z_]*) die "نام کلید نامعتبر: «$k»" ;; esac
+        if [ "$k" = ports ]; then
+          [ -n "$(key_spec "$side" ports)" ] || die 'سمت کلاینت کلید ports ندارد.'
+          has_ports=1                   # «ports=» یعنی خالی کن
+        else
+          tv=$(toml_value "$side" "$k" "$v")
+          pending="$pending$k	$tv
+"
+        fi
+        ;;
+      *) die "خط نامعتبر (شکل «کلید=مقدار»): «$line»" ;;
+    esac
+  done <"$conf.in.$$"
+  rm -f "$conf.in.$$"
+
+  [ -n "$pending" ] || [ "$has_ports" = 1 ] || die 'چیزی برای نوشتن نبود.'
+
+  # ------- پاس دوم: نوشتن روی نسخه‌ی موقت
+  tmp="$conf.new.$$"
+  cp "$conf" "$tmp"
+  chmod 600 "$tmp"
+  printf '%s' "$pending" | while IFS='	' read -r k tv; do
+    [ -n "$k" ] || continue
+    old=$(sed -n "s/^[[:space:]]*$k[[:space:]]*=[[:space:]]*//p" "$tmp" |
+            sed -e 's/[[:space:]]*#.*$//' -e 's/[[:space:]]*$//' | head -n1)
+    if [ "$old" = "$tv" ]; then printf 'unchanged %s\n' "$k"
+    else printf 'changed %s\n' "$k"; fi
+  done >"$conf.rep.$$"
+  printf '%s' "$pending" | while IFS='	' read -r k tv; do
+    [ -n "$k" ] || continue
+    set_conf_val "$tmp" "$k" "$tv"
+  done
+  if [ "$has_ports" = 1 ]; then
+    old_ports=$(sed -n '/^[[:space:]]*ports[[:space:]]*=[[:space:]]*\[/,/\]/p' "$tmp")
+    if [ -z "$rows" ]; then set_conf_ports "$tmp"
+    else
+      saved_ifs=$IFS; IFS='
+'; set -f
+      # shellcheck disable=SC2086
+      set -- $rows
+      IFS=$saved_ifs; set +f
+      set_conf_ports "$tmp" "$@"
+    fi
+    new_ports=$(sed -n '/^[[:space:]]*ports[[:space:]]*=[[:space:]]*\[/,/\]/p' "$tmp")
+    if [ "$old_ports" = "$new_ports" ]; then printf 'unchanged ports\n' >>"$conf.rep.$$"
+    else printf 'changed ports\n' >>"$conf.rep.$$"; fi
+  fi
+
+  # ------- جایگزینی اتمیک، با پشتیبان
+  cp "$conf" "$conf.bak"
+  chmod 600 "$conf.bak"
+  mv "$tmp" "$conf"
+  cat "$conf.rep.$$"
+  rm -f "$conf.rep.$$"
 }
 
 port_busy() {
@@ -1151,6 +1459,7 @@ case "$cmd" in
   status)                  cmd_status "$@" ;;
   logs|log)                cmd_logs "$@" ;;
   config|conf)             cmd_config "$@" ;;
+  apply-config|apply_config) cmd_apply_config "$@" ;;
   edit)                    cmd_edit "$@" ;;
   token)                   cmd_token ;;
   check|doctor)            cmd_check "$@" ;;
