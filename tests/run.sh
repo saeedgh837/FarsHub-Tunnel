@@ -45,7 +45,9 @@ fi
 
 if [ "$want" = all ] || [ "$want" = web ]; then
   printf '\n== WEB ==\n'
-  if command -v node >/dev/null 2>&1; then
+  if [ ! -d "$REPO/tests/web" ]; then
+    printf '  رد شد — tests/web هنوز نیست\n'
+  elif command -v node >/dev/null 2>&1; then
     ( cd "$REPO" && node --test tests/web/ ) || rc=1
   else
     printf '  رد شد — node پیدا نشد\n'

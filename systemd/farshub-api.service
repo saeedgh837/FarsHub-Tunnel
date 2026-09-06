@@ -1,0 +1,49 @@
+# سرویس API پنل وب فارس‌هاب.
+#
+# روی 127.0.0.1 گوش می‌دهد و هیچ‌وقت مستقیم در دسترس شبکه نیست — nginx جلویش
+# است و auth_basic آنجاست.
+#
+# با کاربر بی‌shell «farshub-api» اجرا می‌شود و برای هر کار نیازمند root
+# «sudo farshub <زیردستور>» را با آرگومان ثابت صدا می‌زند (فهرست ثابت در
+# /etc/sudoers.d/farshub-api).
+#
+# دو تنظیم سخت‌سازی عمداً اینجا نیست:
+#   NoNewPrivileges  → اجرای setuid را می‌بندد و sudo setuid است.
+#   ProtectSystem    → mount namespace به بچه‌های root هم ارث می‌رسد، پس
+#                      «sudo farshub apply-config» نمی‌تواند /etc/farshub را
+#                      بنویسد. در برابر خودِ کاربر farshub-api هم چیزی اضافه
+#                      نمی‌کند: مجوزهای معمولی یونیکس همان کار را می‌کنند.
+
+[Unit]
+Description=FarsHub Tunnel — سرویس API پنل
+Documentation=https://github.com/saeedgh837/FarsHub-Tunnel
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=farshub-api
+Group=farshub-api
+ExecStart=/usr/local/bin/farshub-api --host 127.0.0.1 --port 2061
+Restart=always
+RestartSec=3
+SyslogIdentifier=farshub-api
+StartLimitIntervalSec=300
+StartLimitBurst=10
+
+RuntimeDirectory=farshub-api
+RuntimeDirectoryMode=0700
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryMax=128M
+TasksMax=64
+
+[Install]
+WantedBy=multi-user.target

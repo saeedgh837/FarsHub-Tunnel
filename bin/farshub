@@ -1436,6 +1436,10 @@ cmd_paths() {
   printf 'libexec=%s\n'     "$LIBEXEC"
   printf 'log=%s\n'         "$LOG_DIR"
   printf 'bin=%s\n'         "$BIN_DIR"
+  # پنل باید بتواند «هنوز نصب نشده» را بدون root تشخیص بدهد — ویزارد سرور
+  # خام روی همین سیگنال سوار است.
+  [ -f "$CONF_DIR/server.toml" ] && printf 'installed_server=1\n' || printf 'installed_server=0\n'
+  [ -f "$CONF_DIR/client.toml" ] && printf 'installed_client=1\n' || printf 'installed_client=0\n'
 }
 
 # panel.json را روی stdout می‌سازد تا بتوان جایی که پنل سرو می‌شود ریدایرکتش کرد.
