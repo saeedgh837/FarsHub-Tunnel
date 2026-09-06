@@ -44,6 +44,7 @@ offsetها را می‌شکند. پس هیچ‌کدام تغییر نکرده‌
 | `panel-down` | برگرداندن همه‌ی تغییرهای `panel-up` |
 | `panel` | توضیح پنل وب و گزینه‌هایش |
 | `panel-meta [سمت]` | `panel.json` پنل را روی stdout می‌سازد |
+| `paths [سمت]` | همه‌ی مسیرها و نام‌های این نصب را چاپ می‌کند |
 | `version` | نسخه‌ی CLI و موتور اجرا |
 | `support` | لینک تلگرام پشتیبانی |
 | `help` | راهنما |
@@ -203,6 +204,9 @@ FarsHub هم مینویسد**. فهرست کامل، تا بدانید `panel-do
 | `FARSHUB_UNIT_DIR` | `/etc/systemd/system` |
 | `FARSHUB_LOG_DIR` | `/var/log/farshub` |
 | `FARSHUB_STATE_DIR` | `/var/lib/farshub` |
+| `FARSHUB_UNIT_PREFIX` | `farshub` — پیشوند نام یونیت systemd (`farshub-server.service`) |
+| `FARSHUB_SITE_NAME` | `farshub-panel` — نام سایت nginx پنل |
+| `FARSHUB_HTPASSWD` | `/etc/nginx/farshub.htpasswd` — فایل رمز پنل |
 
 ```bash
 FARSHUB_CONF_DIR=/tmp/t/conf FARSHUB_LIBEXEC=/tmp/t/libexec ./bin/farshub install server
@@ -210,3 +214,12 @@ FARSHUB_CONF_DIR=/tmp/t/conf FARSHUB_LIBEXEC=/tmp/t/libexec ./bin/farshub instal
 
 نصب در مسیرهای پیش‌فرض root می‌خواهد؛ نصب در یک prefix شخصی نه — فقط دسترسی
 نوشتن سنجیده می‌شود.
+
+سه تای آخر برای **انزوا** هستند. با آنها می‌توان یک نصب کامل و جدا روی همان
+ماشین بالا آورد بدون اینکه نصب زنده لمس شود — نه سایت nginx‌اش بازنویسی شود و
+نه `systemctl restart` سرویس زنده را بگیرد. `farshub paths` نشان می‌دهد هر
+override به چه مسیری رسیده است:
+
+```bash
+FARSHUB_CONF_DIR=/opt/fh-test/conf FARSHUB_UNIT_PREFIX=farshub-test farshub paths server
+```

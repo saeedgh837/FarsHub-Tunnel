@@ -55,6 +55,10 @@ core_version() {
 }
 
 # ----------------------------------------------------------------- کمک‌ها --
+# نام یونیت هم مثل مسیرها باید قابل انزوا باشد، وگرنه تست روی سرور زنده
+# «systemctl restart farshub-server» می‌زند و تونل واقعی را می‌خواباند.
+UNIT_PREFIX="${FARSHUB_UNIT_PREFIX:-farshub}"
+
 # «سمت» تونل: server = پورت‌ها را Listen می‌کند، client = همیشه Dial می‌کند.
 side_conf() {
   case "$1" in
@@ -66,8 +70,8 @@ side_conf() {
 
 side_unit() {
   case "$1" in
-    server|s) printf '%s\n' 'farshub-server.service' ;;
-    client|c) printf '%s\n' 'farshub-client.service' ;;
+    server|s) printf '%s-server.service\n' "$UNIT_PREFIX" ;;
+    client|c) printf '%s-client.service\n' "$UNIT_PREFIX" ;;
     *) die "سمت نامعتبر: «$1» (server یا client)" ;;
   esac
 }
@@ -83,6 +87,17 @@ guess_side() {
     die "کانفیگی در $CONF_DIR نیست. «farshub install» را اجرا کنید."
   fi
   die 'هر دو سمت نصب است — صریح بگویید: farshub '"$1"' server|client'
+}
+
+# مثل guess_side ولی وقتی هیچ سمتی نصب نیست یا هر دو نصب‌اند، فقط ساکت
+# چیزی برنمی‌گرداند. panel-up روی سرور خام به این نیاز دارد.
+guess_side_soft() {
+  has_s=0; has_c=0
+  [ -f "$CONF_DIR/server.toml" ] && has_s=1
+  [ -f "$CONF_DIR/client.toml" ] && has_c=1
+  if [ "$has_s" = 1 ] && [ "$has_c" = 0 ]; then printf 'server\n'; fi
+  if [ "$has_c" = 1 ] && [ "$has_s" = 0 ]; then printf 'client\n'; fi
+  return 0
 }
 
 need_root() {
@@ -194,6 +209,7 @@ $BRAND — تونل معکوس برای عبور از NAT و فیلترینگ
   panel-down        برگرداندن همه‌ی تغییرهای panel-up
   panel             توضیح پنل وب و گزینه‌هایش
   panel-meta [سمت]  ساخت panel.json پنل (نقش، نسخه، مشخصات میزبان)
+  paths [سمت]       نشان دادن همه‌ی مسیرها و نام‌های این نصب
   version           نسخه‌ی FarsHub و موتور اجرا
   support           راه ارتباط با پشتیبانی
   help              همین متن
@@ -405,6 +421,39 @@ cmd_edit() {
 }
 
 # ------------------------------------------------------------------ نصب --
+# منبع فایل‌های نصب: مخزن اگر کنار اسکریپت باشد، وگرنه نسخه‌ای که نصب قبلی
+# در $PAYLOAD_DIR گذاشته. بدون این، «sudo farshub install client» از مسیر
+# API شکست می‌خورد — آن‌جا اسکریپت در /usr/local/bin است و مخزنی کنارش نیست.
+find_payload() {
+  if [ -f "$self_dir/../configs/server.toml" ]; then
+    (CDPATH= cd -- "$self_dir/.." && pwd)
+  elif [ -f "$PAYLOAD_DIR/configs/server.toml" ]; then
+    printf '%s\n' "$PAYLOAD_DIR"
+  else
+    die "فایل‌های نصب پیدا نشد — نه کنار اسکریپت، نه در $PAYLOAD_DIR."
+  fi
+}
+
+# وقتی مسیرها یا نام یونیت override شده‌اند، سرویس باید همان محیط را ببیند
+# وگرنه _exec کانفیگ پیش‌فرض را برمی‌دارد.
+write_unit_env() {                      # $1=مسیر drop-in  $2=سمت
+  mkdir -p "$(dirname -- "$1")"
+  cat >"$1" <<EOF
+# ساخته‌ی «farshub install» — چون مسیرهای FARSHUB_* پیش‌فرض نبودند.
+[Service]
+Environment=FARSHUB_CONF_DIR=$CONF_DIR
+Environment=FARSHUB_LIBEXEC=$LIBEXEC
+Environment=FARSHUB_BIN_DIR=$BIN_DIR
+Environment=FARSHUB_UNIT_DIR=$UNIT_DIR
+Environment=FARSHUB_LOG_DIR=$LOG_DIR
+Environment=FARSHUB_STATE_DIR=$STATE_DIR
+Environment=FARSHUB_UNIT_PREFIX=$UNIT_PREFIX
+ExecStart=
+ExecStart=$BIN_DIR/farshub _exec $2
+EOF
+  chmod 644 "$1"
+}
+
 cmd_install() {
   side=${1:-}
   [ -n "$side" ] || die 'سمت را بگویید: farshub install server|client'
@@ -412,15 +461,23 @@ cmd_install() {
     *) die "سمت نامعتبر: «$side»" ;; esac
   need_write "$LIBEXEC" "$BIN_DIR" "$CONF_DIR" "$LOG_DIR" "$STATE_DIR"
 
-  src=$self_dir
-  [ -f "$src/farshub-core" ] || src="$self_dir/../bin"
-  [ -f "$src/farshub-core" ] || die 'farshub-core کنار این اسکریپت نیست.'
-  repo=$(CDPATH= cd -- "$src/.." && pwd)
+  # کانفیگ‌ها و یونیت‌ها: از مخزن یا از payload نصب قبلی.
+  repo=$(find_payload)
+  # موتور اجرا: کنار اسکریپت (مخزن) یا جایی که نصب قبلی گذاشته.
+  core=''
+  for c in "$self_dir/farshub-core" "$LIBEXEC/farshub-core" \
+           "$BIN_DIR/farshub-core"; do
+    [ -f "$c" ] && { core=$c; break; }
+  done
+  [ -n "$core" ] || die 'farshub-core نه کنار این اسکریپت است و نه نصب شده.'
 
   say "نصب $BRAND — سمت $side"
 
-  install -Dm755 "$src/farshub-core" "$LIBEXEC/farshub-core"
-  install -Dm755 "$src/farshub"      "$BIN_DIR/farshub"
+  # اگر همان فایل مقصد است، cp روی خودش خطا می‌دهد.
+  [ "$core" = "$LIBEXEC/farshub-core" ] ||
+    install -Dm755 "$core" "$LIBEXEC/farshub-core"
+  [ "$self_dir/farshub" = "$BIN_DIR/farshub" ] ||
+    install -Dm755 "$self_dir/farshub" "$BIN_DIR/farshub"
   say "  موتور  → $LIBEXEC/farshub-core"
   say "  دستور  → $BIN_DIR/farshub"
 
@@ -445,13 +502,30 @@ cmd_install() {
     say "  پنل    → $STATE_DIR/web"
   fi
 
+  # payload تا نصب سمت دوم بی‌مخزن هم کار کند. اگر منبع خودِ payload بود
+  # (نصب دوم از /usr/local/bin) کپی روی خودش خطا می‌دهد، پس رد می‌شود.
+  if [ "$repo" != "$PAYLOAD_DIR" ]; then
+    install -d -m755 "$PAYLOAD_DIR/configs" "$PAYLOAD_DIR/systemd"
+    cp "$repo/configs/server.toml" "$repo/configs/client.toml" "$PAYLOAD_DIR/configs/"
+    cp "$repo/systemd/farshub-server.service" "$repo/systemd/farshub-client.service" \
+       "$PAYLOAD_DIR/systemd/"
+    chmod -R u=rwX,go=rX "$PAYLOAD_DIR"
+    say "  منبع   → $PAYLOAD_DIR"
+  fi
+
+  # نوشتن فایل یونیت به systemd گره نمی‌خورد — فقط daemon-reload.
+  unit=$(side_unit "$side")
+  install -Dm644 "$repo/systemd/farshub-$side.service" "$UNIT_DIR/$unit"
+  say "  سرویس  → $UNIT_DIR/$unit"
+  if [ "$UNIT_PREFIX" != 'farshub' ] || [ "$CONF_DIR" != '/etc/farshub' ] ||
+     [ "$BIN_DIR" != '/usr/local/bin' ] || [ "$STATE_DIR" != '/var/lib/farshub' ]; then
+    write_unit_env "$UNIT_DIR/$unit.d/10-farshub-env.conf" "$side"
+    say "  محیط   → $UNIT_DIR/$unit.d/10-farshub-env.conf"
+  fi
   if have_systemd; then
-    unit=$(side_unit "$side")
-    install -Dm644 "$repo/systemd/$unit" "$UNIT_DIR/$unit"
     systemctl daemon-reload
-    say "  سرویس  → $UNIT_DIR/$unit"
   else
-    say '  سرویس  → رد شد (systemd نیست)'
+    say '  سرویس  → daemon-reload رد شد (systemd نیست)'
   fi
 
   say ''
@@ -614,11 +688,25 @@ cmd_panel() {
 # کردن web_port موتور، بستن همان پورت از بیرون، nginx با رمز جلوی پنل، و
 # panel.json. panel-up هر چهار را با هم انجام می‌دهد و panel-down برمی‌گرداند.
 PANEL_STATE="$STATE_DIR/panel.conf"
-HTPASSWD_FILE='/etc/nginx/farshub.htpasswd'
-SITE_NAME='farshub-panel'
+API_STATE="$STATE_DIR/api.conf"
+HTPASSWD_FILE="${FARSHUB_HTPASSWD:-/etc/nginx/farshub.htpasswd}"
+SITE_NAME="${FARSHUB_SITE_NAME:-farshub-panel}"
+PAYLOAD_DIR="$STATE_DIR/payload"
 
 # listen [::] روی ماشین بدون IPv6 در bind خطا می‌دهد و کل nginx بالا نمی‌آید.
 have_ipv6() { [ -f /proc/net/if_inet6 ]; }
+
+# دبیان/اوبونتو sites-available دارند، رد‌هت conf.d. هر دو را پوشش می‌دهیم و
+# نتیجه را در SITE_FILE و SITE_LINK می‌گذاریم (SITE_LINK فقط در حالت اول).
+resolve_site_paths() {
+  if [ -d /etc/nginx/sites-available ] && [ -d /etc/nginx/sites-enabled ]; then
+    SITE_FILE="/etc/nginx/sites-available/$SITE_NAME"
+    SITE_LINK="/etc/nginx/sites-enabled/$SITE_NAME"
+  else
+    SITE_FILE="/etc/nginx/conf.d/$SITE_NAME.conf"
+    SITE_LINK=''
+  fi
+}
 
 pkg_install_nginx() {
   if command -v apt-get >/dev/null 2>&1; then
@@ -812,11 +900,10 @@ cmd_panel_up() {
   case $wport in ''|*[!0-9]*) die "web_port نامعتبر: «$wport»" ;; esac
   [ "$wport" = "$pport" ] && die "پورت پنل و web_port نمی‌توانند یکی باشند ($pport)."
 
-  if [ -d /etc/nginx/sites-available ] && [ -d /etc/nginx/sites-enabled ]; then
-    site="/etc/nginx/sites-available/$SITE_NAME"
-    link="/etc/nginx/sites-enabled/$SITE_NAME"
-  elif [ -d /etc/nginx/conf.d ]; then
-    site="/etc/nginx/conf.d/$SITE_NAME.conf"; link=''
+  # هنوز ممکن است nginx نصب نباشد؛ آن‌وقت هیچ‌کدام از دو ساختار نیست و
+  # تشخیص واقعی بعد از ensure_nginx تکرار می‌شود.
+  if [ -d /etc/nginx ]; then
+    resolve_site_paths; site=$SITE_FILE; link=$SITE_LINK
   else
     site=''; link=''
   fi
@@ -827,14 +914,11 @@ cmd_panel_up() {
   ensure_nginx
   # مسیر nginx تازه نصب‌شده تا حالا وجود نداشت، پس بعد از نصب دوباره بسنج.
   if [ -z "$site" ]; then
-    if [ -d /etc/nginx/sites-available ] && [ -d /etc/nginx/sites-enabled ]; then
-      site="/etc/nginx/sites-available/$SITE_NAME"
-      link="/etc/nginx/sites-enabled/$SITE_NAME"
-    elif [ -d /etc/nginx/conf.d ]; then
-      site="/etc/nginx/conf.d/$SITE_NAME.conf"; link=''
-    else
+    [ -d /etc/nginx ] ||
       die 'ساختار /etc/nginx شناسایی نشد (نه sites-available و نه conf.d).'
-    fi
+    resolve_site_paths; site=$SITE_FILE; link=$SITE_LINK
+    [ -d "$(dirname -- "$site")" ] ||
+      die 'ساختار /etc/nginx شناسایی نشد (نه sites-available و نه conf.d).'
   fi
   if [ ! -f "$site" ] && port_busy "$pport"; then
     die "پورت $pport اشغال است — با --port پورت دیگری بدهید."
@@ -1018,6 +1102,34 @@ cmd_panel_down() {
   say 'با «farshub panel-up» دوباره بالا می‌آید.'
 }
 
+# «این نصب کجاست؟» — همان سؤالی که در پشتیبانی مرتب پرسیده می‌شود، و تنها
+# راه دیدن اثر FARSHUB_* بدون root و بدون systemd.
+cmd_paths() {
+  side=${1:-}
+  [ -n "$side" ] || side=$(guess_side_soft)
+  [ -n "$side" ] || side=server
+  case "$side" in server|s) side=server ;; client|c) side=client ;;
+    *) die "سمت نامعتبر: «$side»" ;; esac
+  resolve_site_paths
+  unit=$(side_unit "$side")
+  printf 'side=%s\n'        "$side"
+  printf 'conf=%s\n'        "$(side_conf "$side")"
+  printf 'unit=%s\n'        "$unit"
+  printf 'unit_file=%s\n'   "$UNIT_DIR/$unit"
+  printf 'dropin_dir=%s\n'  "$UNIT_DIR/$unit.d"
+  printf 'site_name=%s\n'   "$SITE_NAME"
+  printf 'site=%s\n'        "$SITE_FILE"
+  printf 'site_link=%s\n'   "$SITE_LINK"
+  printf 'htpasswd=%s\n'    "$HTPASSWD_FILE"
+  printf 'panel_state=%s\n' "$PANEL_STATE"
+  printf 'api_state=%s\n'   "$API_STATE"
+  printf 'web=%s\n'         "$STATE_DIR/web"
+  printf 'payload=%s\n'     "$PAYLOAD_DIR"
+  printf 'libexec=%s\n'     "$LIBEXEC"
+  printf 'log=%s\n'         "$LOG_DIR"
+  printf 'bin=%s\n'         "$BIN_DIR"
+}
+
 # panel.json را روی stdout می‌سازد تا بتوان جایی که پنل سرو می‌شود ریدایرکتش کرد.
 cmd_panel_meta() {
   side=${1:-}
@@ -1046,6 +1158,7 @@ case "$cmd" in
   panel-up|panel_up)       cmd_panel_up "$@" ;;
   panel-down|panel_down)   cmd_panel_down "$@" ;;
   panel-meta|panel_meta)   cmd_panel_meta "$@" ;;
+  paths)                   cmd_paths "$@" ;;
   version|-v|--version)    cmd_version ;;
   support)                 cmd_support ;;
   help|-h|--help)          cmd_help ;;
