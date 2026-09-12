@@ -352,6 +352,40 @@ prun "$s7" peers server
 assert_rc 'سرور بدون bind_addr: rc 1' 1
 assert_contains 'سرور بدون bind_addr: پیام' "$ERR" 'bind_addr'
 
+# --- همتای IPv4-map شده (سوکت dual-stack موتور اجرا) -------------------------
+# در تولید، ss روی سرور همتاها را به شکل [::ffff:1.2.3.4]:port می‌دهد؛ خروجی
+# و کلید state باید IPv4 ساده باشند، نه شکل map شده.
+reset_stub_env
+s8=$(fixture server); rm_on_exit="$rm_on_exit $s8"
+sed -i -e 's|^bind_addr = .*|bind_addr = "0.0.0.0:2083"|' \
+       -e 's|^web_port = .*|web_port = 0|' "$s8/conf/server.toml"
+cat >"$stub/ss.out" <<'EOF'
+ESTAB 0 0 [::ffff:10.0.0.1]:2083 [::ffff:31.56.178.224]:40198
+ESTAB 0 0 [::ffff:10.0.0.1]:2083 [::ffff:31.56.178.224]:40199
+EOF
+prun "$s8" peers server
+assert_rc 'سرور ::ffff: rc صفر' 0
+jv 'd["clients"][0]["ip"]'
+assert_eq 'سرور ::ffff: IP ساده بدون پیشوند' "$JV" 31.56.178.224
+jv 'd["clients"][0]["connections"]'
+assert_eq 'سرور ::ffff: شمارش دست‌نخورده' "$JV" 2
+assert_missing 'سرور ::ffff: پیشوند در خروجی نیست' "$OUT" '::ffff:'
+assert_contains 'سرور ::ffff: کلید state بدون پیشوند' \
+  "$(cat "$s8/state/peers-state.json")" '"server/31.56.178.224"'
+
+c7=$(fixture client); rm_on_exit="$rm_on_exit $c7"
+sed -i -e 's/^remote_addr = .*/remote_addr = "87.107.81.96:2083"/' \
+       -e 's/^token = .*/token = "TOKENPEER_0123456789abcdef9876"/' \
+       -e 's/^web_port = .*/web_port = 0/' "$c7/conf/client.toml"
+cat >"$stub/ss.out" <<'EOF'
+ESTAB 0 0 31.56.178.224:5x [::ffff:87.107.81.96]:2083
+ESTAB 0 0 31.56.178.224:5y 9.9.9.9:2083
+EOF
+prun "$c7" peers client
+assert_rc 'کلاینت ::ffff: rc صفر' 0
+jv 'd["server"]["connections"]'
+assert_eq 'کلاینت ::ffff: همتای map شده شمرده می‌شود' "$JV" 1
+
 # --- راهنما -------------------------------------------------------------------
 fh help
 assert_rc 'help: rc صفر' 0

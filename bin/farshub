@@ -71,6 +71,15 @@ addr_host() {
   esac
 }
 
+# IP همتا از خروجی ss، با پاک‌کردن پیشوند IPv4-map شده. سوکت dual-stack (که
+# موتور اجرا هست) همتاها را به شکل [::ffff:1.2.3.4]:port می‌دهد؛ آن پیشوند
+# هم کلید state را شلوغ می‌کند هم کارت پنل — IPv4 ساده‌ی همان IP است.
+peer_ip() {
+  _pip=$(addr_host "$1")
+  case "$_pip" in '::ffff:'*) _pip=${_pip#'::ffff:'} ;; esac
+  printf '%s\n' "$_pip"
+}
+
 # بازه‌های پروکسی کلادفلر (cloudflare.com/ips). تطبیق الگویی است نه CIDR
 # دقیق — فقط برای هشدار به کار می‌رود، نه تصمیم. remote_addr پشت پروکسی
 # CF یعنی ترنسپورت غیر ws هرگز به سرور نمی‌رسد: CF فقط HTTP را عبور می‌دهد
@@ -757,7 +766,7 @@ cmd_peers() {
           loc = $(NF-1); peer = $NF
           if (loc ~ (":" tp "$") || loc ~ ("[.]" tp "$")) print peer
         }' |
-        while IFS= read -r pr; do addr_host "$pr"; done |
+        while IFS= read -r pr; do peer_ip "$pr"; done |
         LC_ALL=C sort | uniq -c |
         while read -r n ip; do
           [ -n "${ip:-}" ] || continue
@@ -907,7 +916,7 @@ EOF
         [ -n "$line" ] || continue
         peer=$(printf '%s' "$line" | awk 'NF > 0 {print $NF}')
         [ -n "$peer" ] || continue
-        ph=$(addr_host "$peer")
+        ph=$(peer_ip "$peer")
         pp=${peer##*:}
         [ "$pp" = "$rport" ] || continue
         if printf '%s\n' "$allips" | grep -qx "$ph"; then printf 'x\n'; fi
