@@ -4,9 +4,9 @@
 
 import {
   LOCALES, t, locale, toggleLocale, applyDocumentLocale,
-  num, pct, bytes, bitrate, duration, clock,
+  num, pct, bytes, bitrate, duration, clock, dateTime,
 } from './i18n.js';
-import { fetchStats } from './data.js';
+import { fetchStats, fetchPeers, normalizePeers } from './data.js';
 import { sparkline, ring } from './sparkline.js';
 
 const POLL_MS = 2000;
@@ -22,6 +22,7 @@ const history = {
 };
 
 let lastGood = null;
+let lastPeers = null;
 let portFilter = '';
 
 /* ------------------------------------------------------------------ helpers -- */
@@ -83,6 +84,7 @@ function applyTranslations() {
   $('.skip-link').textContent = t('a11y.skip');
 
   if (lastGood) render(lastGood);   // اعداد را با ارقام زبان جدید بازنویسی کن
+  renderPeers(lastPeers);
 }
 
 /* -------------------------------------------------------------------- theme -- */
@@ -306,6 +308,131 @@ function emptyState(title, body) {
   return el;
 }
 
+/* --------------------------------------------------------------- peers card -- */
+
+/* فایل اختیاری peers.json کنار پنل: «آن طرف خط» از دید همین ماشین. خطا یا
+   نبودنش فقط یعنی «این کارت را نداریم» — هرگز فید را به stale/offline نمی‌برد. */
+async function pollPeers() {
+  try {
+    return normalizePeers(await fetchPeers());
+  } catch {
+    return null;
+  }
+}
+
+/** فاصله تا حال، مثل «۳ دقیقه پیش»؛ timestamp نبودن یعنی «هرگز» (—). */
+function ago(date) {
+  if (!date) return t('unit.none');
+  return `${duration((Date.now() - date.getTime()) / 1000)} ${t('peers.ago')}`;
+}
+
+/** چیپ پورت با مصرف. عدد پورت شناسه است نه مقدار، پس بدون جداکننده‌ی
+    هزارگان. مصرف با bytes() بازفرمت می‌شود تا با جدول پورت‌ها یکی باشد؛
+    رشته‌ی تجزیه‌ناپذیر خام می‌ماند. */
+function peersPortChip(p) {
+  const usage = p.usageBytes != null ? fmtBytes(p.usageBytes) : (p.usage ?? '');
+  return `<span class="port-chip">${
+    escapeHTML(num(p.port, { useGrouping: false }))
+  } · ${escapeHTML(usage)}</span>`;
+}
+
+/** سمت سرور: جدول کلاینت‌های متصل. پورت‌ها per-client نوشته می‌شوند اما
+    مصرفشان تفکیک‌نشده است — عنوان ستون عمداً خنثی است تا «سهم هر کلاینت»
+    القا نشود. */
+function peersClientsTable(p) {
+  const table = document.createElement('table');
+  table.innerHTML = `
+    <thead>
+      <tr>
+        <th scope="col">${escapeHTML(t('peers.col.ip'))}</th>
+        <th scope="col" class="cell-num">${escapeHTML(t('ports.col.conns'))}</th>
+        <th scope="col">${escapeHTML(t('peers.col.first'))}</th>
+        <th scope="col">${escapeHTML(t('peers.col.last'))}</th>
+        <th scope="col">${escapeHTML(t('peers.col.ports'))}</th>
+      </tr>
+    </thead>
+    <tbody></tbody>`;
+
+  const tbody = $('tbody', table);
+  for (const c of p.clients) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td class="mono">${escapeHTML(c.ip ?? t('unit.none'))}</td>
+      <td class="cell-num num">${escapeHTML(num(c.connections))}</td>
+      <td>${escapeHTML(ago(c.firstSeen))}</td>
+      <td>${escapeHTML(ago(c.lastSeen))}</td>
+      <td>${c.ports.length
+        ? `<div class="peers__ports">${c.ports.map(peersPortChip).join('')}</div>`
+        : t('unit.none')}</td>`;
+    tbody.append(tr);
+  }
+  return table;
+}
+
+/** سمت کلاینت: طرف مقابل یک سرور است — همان چیدمان سطری کارت مشخصات. */
+function peersServerSpecs(p) {
+  const s = p.server;
+  const rows = [
+    { key: 'peers.remote', value: s.remoteAddr, mono: true },
+    { key: 'peers.resolved', value: s.resolvedIp, mono: true },
+    { key: 'meta.transport', value: p.transport, mono: true },
+    { key: 'peers.status', value: s.tunnelStatus, mono: true },
+    { key: 'ports.col.conns', value: num(s.connections), num: true },
+    { key: 'peers.col.first', value: ago(s.firstSeen) },
+    { key: 'peers.col.last', value: ago(s.lastSeen) },
+  ];
+
+  const dl = document.createElement('dl');
+  dl.className = 'specs';
+  for (const row of rows) {
+    const el = document.createElement('div');
+    el.className = 'specs__row';
+    const cls = row.mono ? 'mono' : (row.num ? 'num' : '');
+    el.innerHTML = `
+      <dt>${escapeHTML(t(row.key))}</dt>
+      <dd><span class="${cls}">${escapeHTML(String(row.value ?? t('unit.none')))}</span></dd>`;
+    dl.append(el);
+  }
+  return dl;
+}
+
+function renderPeers(p) {
+  const card = $('#peers');
+  if (!p) {
+    card.hidden = true;
+    return;
+  }
+
+  card.hidden = false;
+  // عنوان کارت به سمتِ خود فایل بستگی دارد، نه به نقش panel.json
+  const title = $('#peers-title');
+  title.dataset.i18n = `peers.title.${p.side}`;
+  title.textContent = t(`peers.title.${p.side}`);
+
+  // مهر زمان: اگر فایل نگوید داده کی ساخته شده، متری نمایش داده نمی‌شود
+  const stamp = $('#peers-stamp');
+  if (p.generatedAt) {
+    $('#peers-stamp-time').textContent = dateTime(p.generatedAt);
+    stamp.hidden = false;
+  } else {
+    stamp.hidden = true;
+  }
+
+  const body = $('#peers-body');
+  if (p.side === 'server') {
+    if (!p.clients.length) {
+      body.replaceChildren(emptyState(t('peers.empty.server'), ''));
+      return;
+    }
+    const scroll = document.createElement('div');
+    scroll.className = 'table-scroll';
+    scroll.append(peersClientsTable(p));
+    body.replaceChildren(scroll);
+  } else {
+    body.replaceChildren(peersServerSpecs(p));
+  }
+}
+
 /* -------------------------------------------------------------------- meters -- */
 
 function renderMeters(d) {
@@ -466,6 +593,10 @@ let timer = null;
 let failures = 0;
 
 async function tick() {
+  // peers.json هم‌زمان با آمار خوانده می‌شود ولی مستقل از آن: خطایش فقط کارت
+  // خودش را پنهان می‌کند و هرگز آمار یا حالت فید را خراب نمی‌کند.
+  const peersP = pollPeers();
+
   try {
     const d = await fetchStats();
     lastGood = d;
@@ -478,6 +609,9 @@ async function tick() {
     setFeed(failures >= 2 ? 'offline' : 'stale');
     if (lastGood) renderHero({ ...lastGood, state: failures >= 2 ? 'unknown' : lastGood.state });
   }
+
+  lastPeers = await peersP;
+  renderPeers(lastPeers);
 }
 
 function startPolling() {

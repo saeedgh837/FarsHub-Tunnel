@@ -71,6 +71,19 @@ export const STRINGS = {
     'ports.search': 'جست‌وجوی پورت یا مقصد',
     'ports.total': 'مجموع',
 
+    'peers.title.server': 'کلاینت‌های متصل',
+    'peers.title.client': 'سرور متصل',
+    'peers.empty.server': 'کلاینتی متصل نیست',
+    'peers.col.ip': 'نشانی IP',
+    'peers.col.first': 'شروع اتصال',
+    'peers.col.last': 'آخرین فعالیت',
+    'peers.col.ports': 'پورت‌ها',
+    'peers.remote': 'نشانی سرور',
+    'peers.resolved': 'IP حل‌شده',
+    'peers.status': 'وضعیت تونل',
+    'peers.ago': 'پیش',
+    'peers.updated': 'آخرین به‌روزرسانی',
+
     'sys.title': 'منابع سیستم',
     'sys.cpu': 'پردازنده',
     'sys.ram': 'حافظه',
@@ -109,7 +122,7 @@ export const STRINGS = {
     'meta.transport': 'ترانسپورت',
     'meta.role': 'نقش',
     'meta.version': 'نسخه',
-    'meta.updated': 'آخرین بروزرسانی',
+    'meta.updated': 'آخرین به‌روزرسانی',
     'meta.live': 'زنده',
     'meta.paused': 'متوقف',
     'meta.stale': 'داده قدیمی',
@@ -184,6 +197,19 @@ export const STRINGS = {
     'ports.nomatch.body': 'No port or target matches that search.',
     'ports.search': 'Search port or target',
     'ports.total': 'Total',
+
+    'peers.title.server': 'Connected Clients',
+    'peers.title.client': 'Connected Server',
+    'peers.empty.server': 'No clients connected',
+    'peers.col.ip': 'IP address',
+    'peers.col.first': 'First seen',
+    'peers.col.last': 'Last seen',
+    'peers.col.ports': 'Ports',
+    'peers.remote': 'Server address',
+    'peers.resolved': 'Resolved IP',
+    'peers.status': 'Tunnel status',
+    'peers.ago': 'ago',
+    'peers.updated': 'Last updated',
 
     'sys.title': 'System resources',
     'sys.cpu': 'CPU',
@@ -364,6 +390,22 @@ export function clock(date = new Date()) {
   const meta = LOCALES[current];
   return new Intl.DateTimeFormat(meta.lang, {
     numberingSystem: meta.digits,
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).format(date);
+}
+
+/** Date + wall-clock time for stamps that name a moment, not just a time —
+    مثل مهر «آخرین به‌روزرسانی» فایل peers که می‌گوید داده از چه تاریخی است. */
+export function dateTime(date = new Date()) {
+  const meta = LOCALES[current];
+  return new Intl.DateTimeFormat(meta.lang, {
+    numberingSystem: meta.digits,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit',

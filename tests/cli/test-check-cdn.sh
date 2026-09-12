@@ -57,6 +57,44 @@ assert_contains 'پیام CDN در check (v4)' "$OUT" 'CDN کلادفلر'
 cdn '2a06:98c1:3122::' check client
 assert_rc 'CF v6 بازه‌ی دوم خطا داد' 1
 
+# --- رگرسیون‌های v1.0.5: بازه‌های اصلاح‌شده -------------------------------
+# 173.245.48.0/20 در v1.0.4 جا افتاده بود (false-negative).
+cdn '173.245.49.1' check client
+assert_rc '173.245.48.0/20 خطا می‌دهد' 1
+assert_contains 'پیام CDN برای 173.245' "$OUT" 'CDN کلادفلر'
+
+# 104.28-31 و 141.101.60-63 جزو CF نیستند (over-match اصلاح شد).
+cdn '104.28.1.1' check client
+assert_rc '104.28 جزو CF نیست' "$clean_rc"
+assert_missing '104.28 هشدار نمی‌گیرد' "$OUT" 'CDN کلادفلر'
+
+cdn '141.101.63.5' check client
+assert_rc '141.101.63 جزو CF نیست' "$clean_rc"
+assert_missing '141.101.63 هشدار نمی‌گیرد' "$OUT" 'CDN کلادفلر'
+
+# 108.162.190/23 و 188.114.10.0/24 هم جزو CF نیستند (over-match نهایی).
+cdn '108.162.190.5' check client
+assert_rc '108.162.190 جزو CF نیست' "$clean_rc"
+assert_missing '108.162.190 هشدار نمی‌گیرد' "$OUT" 'CDN کلادفلر'
+
+cdn '188.114.10.5' check client
+assert_rc '188.114.10 جزو CF نیست' "$clean_rc"
+assert_missing '188.114.10 هشدار نمی‌گیرد' "$OUT" 'CDN کلادفلر'
+
+# انتهای بازه‌ها همچنان مطابق می‌مانند.
+cdn '188.114.105.5' check client
+assert_rc '188.114.105 جزو CF است' 1
+cdn '108.162.192.5' check client
+assert_rc '108.162.192 جزو CF است' 1
+
+# alias کوتاه «c» باید همان رفتار «client» را بدهد (جا افتاده بود در v1.0.4).
+cdn '104.21.46.216' check c
+assert_rc 'check c هم خطای CDN می‌دهد' 1
+assert_contains 'alias c پیام CDN می‌گیرد' "$OUT" 'CDN کلادفلر'
+
+cdn '2606:4700:3034::ac43:8edd' status c
+assert_contains 'status c آی‌پی حل‌شده را نشان می‌دهد' "$OUT" '2606:4700:3034::ac43:8edd'
+
 # --- check: IP معمولی = سالم ----------------------------------------------
 cdn '87.107.81.96' check client
 assert_rc 'IP معمولی سالم' "$clean_rc"

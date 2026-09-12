@@ -10,11 +10,18 @@ engine does:
 
     /stats   tunnel + system stats, one flat object
     /data    per-port usage, an array — only when sniffer = true
+    /peers.json  the optional connected-peers file (`farshub peers` writes it);
+                 ?side=client serves the client-side sample, ?nopeers=1 a 404
+
+The panel fetches its endpoints with plain relative URLs, so a switch typed on
+the page (e.g. /?side=client) never reaches the request — the handler recovers
+it from the Referer. An explicit query on the endpoint itself (curl) wins.
 
     python web/devserver.py [--port 8770]
 """
 
 import argparse
+import datetime
 import json
 import math
 import os
@@ -46,7 +53,7 @@ EVENTS = [
 # so without the file the panel shows "سمت اجرا نامعلوم" and an empty specs card.
 PANEL_META = {
     "role": "server",
-    "version": "FarsHub Tunnel 1.0.4",
+    "version": "FarsHub Tunnel 1.0.5",
     "host": {
         "bind": "0.0.0.0:3080",
         "os": "Debian GNU/Linux 12 (bookworm)",
@@ -79,6 +86,54 @@ def sniffer_usage():
         {"Port": port, "ReadableUsage": human(t * 1.35e6 * (0.42 / (i + 1)))}
         for i, (port, _target) in enumerate(PORTS)
     ]
+
+
+def peers_snapshot(side):
+    """peers.json — the optional file beside the panel, same shape the engine
+    writes. Timestamps are computed per request so the relative times and the
+    "last updated" stamp visibly move while previewing."""
+    now = time.time()
+
+    def iso(age_s):
+        stamp = datetime.datetime.fromtimestamp(now - age_s, datetime.timezone.utc)
+        return stamp.isoformat(timespec="seconds")
+
+    if side == "client":
+        return {
+            "side": "client",
+            "generated_at": iso(0),
+            "transport": "tcpmux",
+            "server": {
+                "remote_addr": "87.107.81.96:2083",
+                "host": "87.107.81.96",
+                "resolved_ip": "87.107.81.96",
+                "connections": 9,
+                "first_seen": iso(3 * 3600 + 14 * 60),
+                "last_seen": iso(4),
+                "tunnel_status": "Connected (TCPMux)",
+            },
+        }
+
+    return {
+        "side": "server",
+        "generated_at": iso(0),
+        "transport": "tcpmux",
+        "tunnel_port": 2083,
+        "clients": [
+            {
+                "ip": "31.56.178.224",
+                "connections": 9,
+                "first_seen": iso(2 * 86400 + 3 * 3600 + 40 * 60),
+                "last_seen": iso(7),
+                # The engine does not attribute usage per client; the same port
+                # list is repeated for every client.
+                "ports": [
+                    {"port": 40199, "usage": "201.88 MB"},
+                    {"port": 42099, "usage": "12.0 KB"},
+                ],
+            },
+        ],
+    }
 
 
 def snapshot(bare=False):
@@ -144,6 +199,13 @@ class Handler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def page_query(self):
+        """Query string of the *page*, from the Referer — the panel fetches its
+        endpoints without the page's query, so browser switches like
+        /?side=client must ride the Referer (sent in full same-origin)."""
+        ref = self.headers.get("Referer") or ""
+        return ref.partition("?")[2] if ref.startswith("http") else ""
+
     def do_GET(self):
         path, _, query = self.path.partition("?")
         if path == "/stats":
@@ -161,13 +223,20 @@ class Handler(SimpleHTTPRequestHandler):
                 self.send_error(404, "no panel.json")
                 return
             return self._json(PANEL_META)
+        if path == "/peers.json":
+            # ?nopeers=1 → نصبی که peers.json ندارد؛ کارت باید بی‌صدا پنهان بماند
+            q = query or self.page_query()
+            if "nopeers=1" in q:
+                self.send_error(404, "no peers.json")
+                return
+            return self._json(peers_snapshot("client" if "side=client" in q else "server"))
         super().do_GET()
 
     def log_message(self, fmt, *args):
         # args[0] is the request line for access logs but the status *code* for
         # log_error(), so it must be coerced — send_error() crashed otherwise.
         first = str(args[0]) if args else ""
-        if not any(p in first for p in ("/data", "/stats", "/panel.json")):
+        if not any(p in first for p in ("/data", "/stats", "/panel.json", "/peers.json")):
             super().log_message(fmt, *args)
 
 

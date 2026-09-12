@@ -10,7 +10,7 @@
 # ==========================================================================
 set -eu
 
-CLI_VERSION='1.0.4'
+CLI_VERSION='1.0.5'
 BRAND='FarsHub Tunnel'
 SUPPORT='https://t.me/vpsfa'
 
@@ -77,14 +77,16 @@ addr_host() {
 # و کانال کنترل موتور بی‌پایان «unexpected EOF» می‌گیرد (تجربه‌ی تولید).
 is_cloudflare_ip() {                # $1=IP → rc 0 اگر در بازه‌های CF بود
   case "$1" in
-    104.1[6-9].*|104.2[0-9].*|104.3[01].*|172.6[4-9].*|172.7[01].*|\
-    162.15[89].*|188.114.9[6-9].*|188.114.10*|188.114.11[01].*|\
-    141.101.[6-9][0-9].*|141.101.1[0-2][0-9].*|108.162.19[0-9].*|\
-    108.162.2[0-5][0-9].*|190.93.24[0-9].*|190.93.25[0-5].*|\
-    198.41.12[89].*|198.41.1[3-9][0-9].*|198.41.2[0-5][0-9].*|\
-    103.21.24[4-7].*|103.22.20[0-3].*|103.31.[4-7].*|197.234.24[0-3].*|\
-    131.0.7[2-5].*|2606:4700:*|2a06:98c[0-7]:*|2400:cb00:*|2803:f800:*|\
-    2405:b500:*|2405:8100:*|2c0f:f248:*) return 0 ;;
+    104.1[6-9].*|104.2[0-7].*|172.6[4-9].*|172.7[01].*|\
+    162.15[89].*|188.114.9[6-9].*|188.114.10[0-9].*|188.114.11[01].*|\
+    141.101.6[4-9].*|141.101.[7-9][0-9].*|141.101.1[01][0-9].*|\
+    141.101.12[0-7].*|108.162.19[2-9].*|108.162.2[0-5][0-9].*|\
+    190.93.24[0-9].*|190.93.25[0-5].*|173.245.4[89].*|173.245.5[0-9].*|\
+    173.245.6[0-3].*|198.41.12[89].*|198.41.1[3-9][0-9].*|\
+    198.41.2[0-5][0-9].*|103.21.24[4-7].*|103.22.20[0-3].*|\
+    103.31.[4-7].*|197.234.24[0-3].*|131.0.7[2-5].*|2606:4700:*|\
+    2a06:98c[0-7]:*|2400:cb00:*|2803:f800:*|2405:b500:*|2405:8100:*|\
+    2c0f:f248:*) return 0 ;;
   esac
   return 1
 }
@@ -241,6 +243,7 @@ $BRAND — تونل معکوس برای عبور از NAT و فیلترینگ
   edit [سمت]        باز کردن کانفیگ در ویرایشگر (\$EDITOR)
   token             ساخت توکن تصادفی ۳۲ بایتی
   check [سمت]       بررسی سلامت نصب و هشدارهای امنیتی
+  peers [سمت]       همتاها و اتصال‌های برقرار به‌صورت JSON — first_seen = شروع همین دوره‌ی اتصال پیوسته
   panel-up [سمت]    بالا آوردن پنل وب: nginx + رمز + فایروال، یک‌جا
   panel-down        برگرداندن همه‌ی تغییرهای panel-up
   panel             توضیح پنل وب و گزینه‌هایش
@@ -370,6 +373,9 @@ svc() {
 cmd_status() {
   side=${1:-}
   [ -n "$side" ] || side=$(guess_side status)
+  # نرمال‌سازی alias کوتاه (s/c) — وگرنه مقایسه‌های «= client» بی‌صدا
+  # رد می‌شوند و مثلاً خط resolved در «status c» حذف می‌شود.
+  case "$side" in server|s) side=server ;; client|c) side=client ;; esac
   conf=$(side_conf "$side")
   unit=$(side_unit "$side")
 
@@ -595,6 +601,9 @@ cmd_install() {
 cmd_check() {
   side=${1:-}
   [ -n "$side" ] || side=$(guess_side check)
+  # نرمال‌سازی alias کوتاه (s/c) — وگرنه بررسی CDN در «check c» بی‌صدا
+  # رد می‌شود.
+  case "$side" in server|s) side=server ;; client|c) side=client ;; esac
   conf=$(side_conf "$side")
   warn=0
 
@@ -700,6 +709,254 @@ cmd_check() {
   fi
   say "پشتیبانی: $SUPPORT"
   [ "$warn" = 0 ]
+}
+
+# ----------------------------------------------------------------- peers --
+# مشاهده‌ی زنده‌ی تونل: چه همتایی وصل است و از کِی، و در سمت سرور مصرف هر پورت.
+# خروجی JSON و فقط روی stdout است تا هم پنل هم اسکریپت بخوانندش. منابع — ss برای
+# اتصال‌ها و /data و /stats موتور برای پورت‌ها و وضعیت — همه اختیاری‌اند: نبودِ
+# جواب یعنی «داده‌ی خالی»، نه خطا. تنها خطاها خطای کاربرند: سمت، کانفیگ.
+cmd_peers() {
+  side=${1:-}
+  [ -n "$side" ] || side=$(guess_side peers)
+  case "$side" in server|s) side=server ;; client|c) side=client ;;
+    *) die "سمت نامعتبر: «$side»" 2 ;; esac
+  conf=$(side_conf "$side")
+  [ -f "$conf" ] || die "کانفیگ نیست: $conf"
+
+  # یک مهر زمانی برای generated_at و state — دو بار date زدن یعنی دو پاسِ متفاوت
+  # از «الان» در یک خروجی.
+  now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  transport=$(conf_val "$conf" transport)
+  stf="$STATE_DIR/peers-state.json"
+
+  # ss فقط با همین فراخوانی پرسیده می‌شود. نبودش یا خطایش یعنی «مشاهده‌ای
+  # نیست»: خروجی معتبرِ خالی چاپ می‌شود و state دست نمی‌خورد — پاک کردن
+  # تاریخچه به‌بهانه‌ی ناتوانی در دیدن، بدترین حالت ممکن است.
+  obs=0; sslines=''
+  if command -v ss >/dev/null 2>&1; then
+    if sslines=$(ss -H -tn state established 2>/dev/null); then obs=1; fi
+  fi
+
+  if [ "$side" = server ]; then
+    bind=$(conf_val "$conf" bind_addr)
+    [ -n "$bind" ] || die 'bind_addr در server.toml نیست — پورت تونل معلوم نیست.'
+    tport=${bind##*:}
+    case "$tport" in
+      ''|*[!0-9]*) die "پورت تونل در bind_addr عدد نیست: «$bind»" ;;
+    esac
+
+    # شمارش اتصال به‌ازای IP همتا. ستون State در نسخه‌های مختلف ss گاهی هست و
+    # گاهی نیست، پس از انتهای خط خوانده می‌شود: همتا = آخرین ستون، محلی =
+    # یکی‌مانده‌به‌آخر — و تطبیق پورت با همان جفت‌نویسه‌ای که port_busy هم
+    # به کار می‌برد. first_seen از state می‌آید؛ خطِ ناسالم = همتای تازه.
+    info=''
+    if [ "$obs" = 1 ]; then
+      info=$(printf '%s\n' "$sslines" |
+        awk -v tp="$tport" 'NF >= 2 {
+          loc = $(NF-1); peer = $NF
+          if (loc ~ (":" tp "$") || loc ~ ("[.]" tp "$")) print peer
+        }' |
+        while IFS= read -r pr; do addr_host "$pr"; done |
+        LC_ALL=C sort | uniq -c |
+        while read -r n ip; do
+          [ -n "${ip:-}" ] || continue
+          first=$(sed -n "s|^\"server/$ip\": {\"first_seen\":\"\([^\"]*\)\",\"last_seen\":\"[^\"]*\"},\{0,1\}\$|\1|p" "$stf" 2>/dev/null) || first=''
+          [ -n "$first" ] || first=$now
+          printf '%s %s %s %s\n' "$ip" "$n" "$first" "$now"
+        done)
+    fi
+
+    # ports: مصرف هر پورت از /data موتور، محدود به پورت‌های مجازِ کانفیگ. برای
+    # همه‌ی همتاها یکسان چون /data انتساب به‌ازای کلاینت ندارد. sniffer خاموش
+    # باشد موتور به‌جای JSON صفحه‌ی HTML می‌دهد — همان لیست خالی تلقی می‌شود.
+    ports_json='[]'
+    wp=$(conf_val "$conf" web_port)
+    if [ -n "$wp" ] && [ "$wp" != 0 ]; then
+      data=$(curl -s --max-time 3 "http://127.0.0.1:$wp/data" 2>/dev/null) || data=''
+      data=$(printf '%s' "$data" | tr -d '\n' | sed 's/^[[:space:]]*//')
+      case "$data" in
+        '['*'"Port":'*)
+          # فهرست مجاز از بلوک ports کانفیگ: سمت چپِ هر مدخل تا «=»، بدون
+          # پیشوند IP بایند — «127.0.0.2:443=…» یعنی پورت 443.
+          allowed=''
+          while IFS= read -r row; do
+            [ -n "$row" ] || continue
+            lp=${row%%=*}
+            case "$lp" in
+              [0-9]*.[0-9]*.[0-9]*.[0-9]*:*) lp=${lp#*:} ;;
+              *:*)                           lp=${lp%%:*} ;;
+            esac
+            allowed="$allowed $lp"
+          done <<EOF
+$(sed -n '/^[[:space:]]*ports[[:space:]]*=[[:space:]]*\[/,/\]/p' "$conf" |
+   sed -e 's/[[:space:]]*#.*$//' \
+       -e 's/^[[:space:]]*ports[[:space:]]*=[[:space:]]*\[//' \
+       -e 's/\].*$//' -e 's/"//g' -e 's/,//g' | tr ' \t' '\n\n' |
+   sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' | grep -v '^$' || true)
+EOF
+          pj=''
+          while IFS= read -r chunk; do
+            [ -n "$chunk" ] || continue
+            dp=$(printf '%s' "$chunk" | sed -n 's/.*"Port":\([0-9][0-9]*\).*/\1/p')
+            [ -n "$dp" ] || continue
+            ok=0
+            for spc in $allowed; do
+              case "$spc" in
+                *-*)
+                  if [ "$dp" -ge "${spc%%-*}" ] && [ "$dp" -le "${spc#*-}" ]; then ok=1; fi ;;
+                *)
+                  if [ "$dp" = "$spc" ]; then ok=1; fi ;;
+              esac
+            done
+            if [ "$ok" = 1 ]; then
+              du=$(printf '%s' "$chunk" | sed -n 's/.*"ReadableUsage":"\([^"]*\)".*/\1/p')
+              [ -n "$pj" ] && pj="$pj, "
+              pj="$pj{ \"port\": $dp, \"usage\": \"$(jesc "$du")\" }"
+            fi
+          done <<EOF
+$(printf '%s' "$data" | sed 's/},{/},\n{/g')
+EOF
+          if [ -n "$pj" ]; then ports_json="[ $pj ]"; fi
+          ;;
+      esac
+    fi
+
+    # state: ماندگاریِ نخستین دیده‌شدنِ همین دوره‌ی پیوسته. همتایی که در ss
+    # نیست حذف می‌شود تا first_seen یعنی «از الان وصل است»، نه «سال پیش دیده
+    # شد». نوشتن اتمیک با mv، به رسم apply-config.
+    if [ "$obs" = 1 ]; then
+      body=''
+      while read -r ip n first last; do
+        [ -n "${ip:-}" ] || continue
+        body="$body\"server/$ip\": {\"first_seen\":\"$first\",\"last_seen\":\"$last\"},
+"
+      done <<EOF
+$info
+EOF
+      body=${body%',
+'}
+      mkdir -p "$STATE_DIR" 2>/dev/null || true
+      tmp="$stf.new.$$"
+      if [ -n "$body" ]; then printf '{\n%s\n}\n' "$body" >"$tmp"
+      else printf '{\n}\n' >"$tmp"; fi
+      mv "$tmp" "$stf"
+    fi
+
+    printf '{\n'
+    printf '  "side": "server",\n'
+    printf '  "generated_at": "%s",\n' "$now"
+    printf '  "transport": "%s",\n' "$(jesc "$transport")"
+    printf '  "tunnel_port": %s,\n' "$tport"
+    if [ -z "$info" ]; then
+      printf '  "clients": []\n'
+    else
+      printf '  "clients": [\n'
+      ent=0
+      while read -r ip n first last; do
+        [ -n "${ip:-}" ] || continue
+        ent=$((ent + 1))
+        [ "$ent" -gt 1 ] && printf ',\n'
+        printf '    {\n'
+        printf '      "ip": "%s",\n' "$(jesc "$ip")"
+        printf '      "connections": %s,\n' "$n"
+        printf '      "first_seen": "%s",\n' "$first"
+        printf '      "last_seen": "%s",\n' "$last"
+        printf '      "ports": %s\n' "$ports_json"
+        printf '    }'
+      done <<EOF
+$info
+EOF
+      printf '\n  ]\n'
+    fi
+    printf '}\n'
+    return 0
+  fi
+
+  # ---------------------------------------------------------- سمت کلاینت --
+  ra=$(conf_val "$conf" remote_addr)
+  host=''; rport=''
+  if [ -n "$ra" ]; then
+    host=$(addr_host "$ra")
+    rport=${ra##*:}
+  fi
+  # resolved_ip: خودِ host اگر IP literal باشد (بی‌نیاز از DNS)؛ وگرنه اولین
+  # پاسخ DNS. برای شمارش، همه‌ی IPهای حل‌شده پذیرفته می‌شوند — نمایش فقط اولی.
+  rip=''
+  if [ -n "$host" ]; then
+    case "$host" in
+      *:*) if printf '%s' "$host" |
+               grep -Eq '^([0-9A-Fa-f]{0,4}:){1,7}[0-9A-Fa-f]{0,4}$'; then rip=$host; fi ;;
+      *)   if valid_ipv4 "$host"; then rip=$host; fi ;;
+    esac
+  fi
+  allips=''
+  if [ -n "$rip" ]; then
+    allips=$host
+  elif [ -n "$host" ]; then
+    allips=$(resolve_host "$host")
+    rip=$(printf '%s\n' "$allips" | head -n 1)
+  fi
+
+  # شمارش اتصال به سرور: همتای ss (آخرین ستون) باید یکی از IPهای حل‌شده باشد
+  # و پورتش همان پورت remote_addr. DNS نباشد و host دامنه باشد → صفر، نه خطا.
+  conns=0
+  if [ "$obs" = 1 ] && [ -n "$rport" ] && [ -n "$allips" ]; then
+    conns=$(printf '%s\n' "$sslines" |
+      while IFS= read -r line; do
+        [ -n "$line" ] || continue
+        peer=$(printf '%s' "$line" | awk 'NF > 0 {print $NF}')
+        [ -n "$peer" ] || continue
+        ph=$(addr_host "$peer")
+        pp=${peer##*:}
+        [ "$pp" = "$rport" ] || continue
+        if printf '%s\n' "$allips" | grep -qx "$ph"; then printf 'x\n'; fi
+      done | wc -l)
+    conns=$(printf '%s' "$conns" | tr -d ' ')
+  fi
+
+  # وضعیت تونل از /stats موتور؛ خودش را موتور گزارش می‌کند، ما فقط منتقلش
+  # می‌کنیم. web_port خاموش یا پاسخ نامعتبر → «unknown»، نه حدس زدن.
+  status='unknown'
+  wp=$(conf_val "$conf" web_port)
+  if [ -n "$wp" ] && [ "$wp" != 0 ]; then
+    stats=$(curl -s --max-time 3 "http://127.0.0.1:$wp/stats" 2>/dev/null) || stats=''
+    tstat=$(printf '%s' "$stats" | sed -n 's/.*"tunnelStatus" *: *"\([^"]*\)".*/\1/p')
+    if [ -n "$tstat" ]; then status=$tstat; fi
+  fi
+
+  # state با همان قاعده‌ی سمت سرور: هسته، «همین دوره‌ی پیوسته».
+  first=''; last=''
+  if [ "$obs" = 1 ]; then
+    if [ "$conns" -gt 0 ]; then
+      pkey="client/${rip:-$host}"
+      first=$(sed -n "s|^\"$pkey\": {\"first_seen\":\"\([^\"]*\)\",\"last_seen\":\"[^\"]*\"},\{0,1\}\$|\1|p" "$stf" 2>/dev/null) || first=''
+      [ -n "$first" ] || first=$now
+      last=$now
+      body="\"$pkey\": {\"first_seen\":\"$first\",\"last_seen\":\"$last\"}"
+    else
+      body=''
+    fi
+    mkdir -p "$STATE_DIR" 2>/dev/null || true
+    tmp="$stf.new.$$"
+    if [ -n "$body" ]; then printf '{\n%s\n}\n' "$body" >"$tmp"
+    else printf '{\n}\n' >"$tmp"; fi
+    mv "$tmp" "$stf"
+  fi
+
+  printf '{\n'
+  printf '  "side": "client",\n'
+  printf '  "generated_at": "%s",\n' "$now"
+  printf '  "transport": "%s",\n' "$(jesc "$transport")"
+  printf '  "server": {\n'
+  printf '    "remote_addr": "%s",\n' "$(jesc "$ra")"
+  printf '    "host": "%s",\n' "$(jesc "$host")"
+  printf '    "resolved_ip": "%s",\n' "$(jesc "$rip")"
+  printf '    "connections": %s,\n' "$conns"
+  printf '    "first_seen": "%s",\n' "$first"
+  printf '    "last_seen": "%s",\n' "$last"
+  printf '    "tunnel_status": "%s"\n' "$(jesc "$status")"
+  printf '  }\n}\n'
 }
 
 cmd_panel() {
@@ -1222,8 +1479,116 @@ EOF
         access_log off;
         proxy_pass http://127.0.0.1:$2/data;
     }
+    location = /peers.json {
+        access_log off;
+    }
 }
 EOF
+}
+
+# --------------------------------------------------------- تایمر peers --
+# کارت همتاها در پنل، peers.json را هر ۲ ثانیه می‌خواند؛ این تایمر هر ۳۰
+# ثانیه «farshub peers» را اجرا و خروجی را اتمیک از نو می‌نویسد (tmp + mv،
+# به رسم state در cmd_peers — پنل هرگز فایلِ نیم‌نوشته نمی‌بیند). یونیت‌ها
+# مثل drop-in فایروال درجا ساخته می‌شوند و در مخزن فایل ثابت ندارند، چون
+# نامشان به UNIT_PREFIX بسته است. دستورهای _peers-install/_peers-uninstall
+# داخلی‌اند: panel-up/down همین‌ها را صدا می‌زنند و تست، جدا از nginx و
+# systemd واقعی، همین‌ها را می‌سنجد.
+
+peers_service_unit() {                    # $1=سمت → متن یونیت سرویس روی stdout
+  cat <<EOF
+# ساخته‌ی «farshub panel-up» — با «farshub panel-down» حذف می‌شود.
+[Unit]
+Description=FarsHub Tunnel — peers JSON (سمت $1)
+Documentation=https://github.com/saeedgh837/FarsHub-Tunnel
+
+[Service]
+Type=oneshot
+Environment=FARSHUB_CONF_DIR=$CONF_DIR
+Environment=FARSHUB_LIBEXEC=$LIBEXEC
+Environment=FARSHUB_BIN_DIR=$BIN_DIR
+Environment=FARSHUB_UNIT_DIR=$UNIT_DIR
+Environment=FARSHUB_LOG_DIR=$LOG_DIR
+Environment=FARSHUB_STATE_DIR=$STATE_DIR
+Environment=FARSHUB_UNIT_PREFIX=$UNIT_PREFIX
+ExecStart=/bin/sh -c '$BIN_DIR/farshub peers $1 > $STATE_DIR/web/peers.json.tmp && mv $STATE_DIR/web/peers.json.tmp $STATE_DIR/web/peers.json'
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=$STATE_DIR
+EOF
+}
+
+peers_timer_unit() {
+  cat <<EOF
+# ساخته‌ی «farshub panel-up» — با «farshub panel-down» حذف می‌شود.
+[Unit]
+Description=FarsHub Tunnel — تایمر peers
+
+[Timer]
+OnBootSec=15
+OnUnitActiveSec=30
+
+[Install]
+WantedBy=timers.target
+EOF
+}
+
+cmd_peers_install() {                     # $1=سمت
+  side=${1:-}
+  case "$side" in server|s) side=server ;; client|c) side=client ;;
+    *) die "سمت نامعتبر: «$side» (server یا client)" 2 ;; esac
+  conf=$(side_conf "$side")
+  [ -f "$conf" ] || die "کانفیگ نیست: $conf"
+  need_write "$UNIT_DIR" "$STATE_DIR"
+
+  t=$(mktemp) || die 'ساخت فایل موقت ناموفق بود.'
+  peers_service_unit "$side" >"$t"
+  install -m644 "$t" "$UNIT_DIR/$UNIT_PREFIX-peers.service"
+  peers_timer_unit >"$t"
+  install -m644 "$t" "$UNIT_DIR/$UNIT_PREFIX-peers.timer"
+  rm -f "$t"
+  say "  یونیت   → $UNIT_DIR/$UNIT_PREFIX-peers.service"
+  say "  یونیت   → $UNIT_DIR/$UNIT_PREFIX-peers.timer"
+  if have_systemd; then
+    systemctl daemon-reload >/dev/null 2>&1 || true
+    if systemctl enable --now "$UNIT_PREFIX-peers.timer" >/dev/null 2>&1; then
+      say '  تایمر   → فعال شد؛ هر ۳۰ ثانیه peers.json از نو ساخته می‌شود'
+    else
+      say '  تایمر   → فعال نشد (systemd بالا نیست؟) — یونیت‌ها نوشته شدند'
+    fi
+  else
+    say '  تایمر   → systemd در دسترس نیست؛ فقط یونیت‌ها نوشته شدند'
+  fi
+
+  # پرایم: تا نخستین تیکِ تایمر (تا ۳۰ ثانیه) کارت همتاها خالی نماند. شکستش
+  # خطا نیست — تایمر بعداً می‌سازد.
+  mkdir -p "$STATE_DIR/web"
+  out=$(cmd_peers "$side" 2>/dev/null) || out=''
+  if [ -n "$out" ]; then
+    printf '%s\n' "$out" >"$STATE_DIR/web/peers.json.tmp"
+    mv "$STATE_DIR/web/peers.json.tmp" "$STATE_DIR/web/peers.json"
+    say "  peers   → $STATE_DIR/web/peers.json ساخته شد"
+  else
+    say '  peers   → پرایم نشد؛ نخستین اجرای تایمر می‌سازدش'
+  fi
+}
+
+cmd_peers_uninstall() {
+  if have_systemd; then
+    systemctl disable --now "$UNIT_PREFIX-peers.timer" 2>/dev/null || true
+    systemctl stop "$UNIT_PREFIX-peers.service" 2>/dev/null || true
+  fi
+  rm -f "$UNIT_DIR/$UNIT_PREFIX-peers.service" "$UNIT_DIR/$UNIT_PREFIX-peers.timer"
+  if have_systemd; then
+    systemctl daemon-reload 2>/dev/null || true
+  fi
+  say '  تایمر   ← peers متوقف و یونیت‌هایش حذف شدند'
+  # peers.json می‌رود تا پنلِ خاموش داده‌ی کهنه نشان ندهد؛ peers-state.json
+  # می‌ماند — تاریخچه‌ی داخلی مشاهده است، نه فایل پنل.
+  rm -f "$STATE_DIR/web/peers.json"
+  say '  پنل     ← peers.json حذف شد (تا داده‌ی کهنه نشان ندهد)'
 }
 
 cmd_panel_up() {
@@ -1388,6 +1753,10 @@ cmd_panel_up() {
     "$side" "$pport" "$wport" "$site" "$link" >"$PANEL_STATE"
   chmod 600 "$PANEL_STATE"
 
+  # ۶) تایمر peers تا کارت همتاها زنده بماند؛ نخستین اجرا هم همین‌جا پرایم
+  # می‌شود.
+  cmd_peers_install "$side"
+
   ip=$(host_ip); [ -n "$ip" ] || ip='SERVER_IP'
   say ''
   say 'پنل بالا آمد.'
@@ -1465,6 +1834,10 @@ cmd_panel_down() {
     say '  فایروال ← قاعده و drop-in حذف شد'
   fi
 
+  # تایمر peers هم مالِ همین پنل است: می‌ایستد و peers.json می‌رود. تاریخچه‌ی
+  # state می‌ماند — داخلی است، نه فایل پنل.
+  cmd_peers_uninstall
+
   if [ -f "$conf" ]; then
     set_conf_val "$conf" web_port 0
     say '  موتور   ← web_port=0'
@@ -1481,7 +1854,8 @@ cmd_panel_down() {
 
   rm -f "$PANEL_STATE"
   say ''
-  say 'پنل خوابید. فایل‌های پنل و panel.json سر جایشان ماندند؛'
+  say 'پنل خوابید: تایمر peers متوقف و peers.json حذف شد.'
+  say 'فایل‌های پنل و panel.json سر جایشان ماندند؛'
   say 'با «farshub panel-up» دوباره بالا می‌آید.'
 }
 
@@ -1542,9 +1916,12 @@ case "$cmd" in
   edit)                    cmd_edit "$@" ;;
   token)                   cmd_token ;;
   check|doctor)            cmd_check "$@" ;;
+  peers)                   cmd_peers "$@" ;;
   panel)                   cmd_panel "$@" ;;
   panel-up|panel_up)       cmd_panel_up "$@" ;;
   panel-down|panel_down)   cmd_panel_down "$@" ;;
+  _peers-install)          cmd_peers_install "$@" ;;   # داخلی — برای panel-up و تست
+  _peers-uninstall)        cmd_peers_uninstall "$@" ;; # داخلی — برای panel-up و تست
   panel-meta|panel_meta)   cmd_panel_meta "$@" ;;
   paths)                   cmd_paths "$@" ;;
   version|-v|--version)    cmd_version ;;

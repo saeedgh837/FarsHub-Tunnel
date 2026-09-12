@@ -278,6 +278,22 @@
       </div>
     </section>
 
+    <!-- ============ connected peers — از peers.json ============ -->
+    <section class="card" id="peers" hidden aria-labelledby="peers-title">
+      <div class="card__head">
+        <div class="card__titles">
+          <h2 class="card__title" id="peers-title" data-i18n="peers.title.server">کلاینت‌های متصل</h2>
+        </div>
+        <span class="peers__stamp" id="peers-stamp" hidden>
+          <span data-i18n="peers.updated">آخرین به‌روزرسانی</span>
+          <b class="num" id="peers-stamp-time"></b>
+        </span>
+      </div>
+      <div class="card__body card__body--flush">
+        <div id="peers-body"><!-- در app.js پر می‌شود --></div>
+      </div>
+    </section>
+
     <!-- ============ system resources ============ -->
     <section class="card" aria-labelledby="sys-title">
       <div class="card__head">

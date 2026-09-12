@@ -272,3 +272,75 @@ export async function fetchStats(
 
   return normalize(stats, ports, await panelMeta(undefined, timeoutMs));
 }
+
+/* peers.json — فایل ایستای دیگری کنار پنل، مثل panel.json، با «آن طرف خط» از
+   دید همین ماشین (کلاینت‌های متصل روی سرور، یا سروری که کلاینت به آن وصل
+   است). برخلاف panel.json کش نمی‌شود، چون سرویس آن را هر بار که وضعیت طرف
+   مقابل را می‌بیند از نو می‌نویسد و محتوایش پیوسته عوض می‌شود. */
+export async function fetchPeers(url = 'peers.json', timeoutMs = 4000) {
+  return getJSON(url, timeoutMs);
+}
+
+/** رشته‌ی ISO یا خالی → Date؛ خالی یا نامعتبر یعنی «هرگز دیده نشده» (null). */
+function asDate(v) {
+  if (typeof v !== 'string' || !v.trim()) return null;
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/**
+ * payload خام peers.json → شکل واحد برای رندر؛ فایل نبود، خوانا نبود یا سمتش
+ * را نگفت → null (کارت پنهان می‌ماند). سمت کارت از خود همین فایل می‌آید، نه
+ * از نقش panel.json — این فایل از دید همین ماشین نوشته شده و مرجع درست
+ * «آن طرف خط» است.
+ */
+export function normalizePeers(payload) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
+
+  const side = String(pick(payload, ['side', 'role', 'mode']) ?? '').trim().toLowerCase();
+  if (side !== 'server' && side !== 'client') return null;
+
+  /* مصرف پورت‌ها مثل /data رشته‌ی از پیش فرمت‌شده‌ی موتور است ("201.88 MB").
+     به بایت تجزیه می‌شود تا با bytes() مثل جدول پورت‌ها بازفرمت شود؛ رشته‌ی
+     تجزیه‌ناپذیر خام به همان شکل نمایش داده می‌شود. */
+  const ports = (raw) => (Array.isArray(raw) ? raw : []).map((p) => {
+    const usage = pick(p, ['usage', 'Usage', 'ReadableUsage', 'readable_usage']);
+    return {
+      port: pick(p, ['port', 'Port', 'local_port']),
+      usage,
+      usageBytes: toNum(usage),
+    };
+  }).filter((p) => p.port != null);
+
+  const base = {
+    side,
+    generatedAt: asDate(pick(payload, ['generated_at', 'generatedAt', 'timestamp'])),
+    transport: pick(payload, ['transport', 'protocol']),
+  };
+
+  if (side === 'server') {
+    return {
+      ...base,
+      clients: (Array.isArray(payload.clients) ? payload.clients : []).map((c) => ({
+        ip: pick(c, ['ip', 'address', 'remote_addr']),
+        connections: pickNum(c, ['connections', 'conns', 'count']),
+        firstSeen: asDate(pick(c, ['first_seen', 'firstSeen', 'since'])),
+        lastSeen: asDate(pick(c, ['last_seen', 'lastSeen', 'seen'])),
+        ports: ports(c.ports),
+      })),
+    };
+  }
+
+  const s = (payload.server && typeof payload.server === 'object') ? payload.server : {};
+  return {
+    ...base,
+    server: {
+      remoteAddr: pick(s, ['remote_addr', 'remoteAddr', 'address', 'endpoint']),
+      resolvedIp: pick(s, ['resolved_ip', 'resolvedIp']) ?? pick(s, ['host', 'hostname', 'ip']),
+      connections: pickNum(s, ['connections', 'conns', 'count']),
+      firstSeen: asDate(pick(s, ['first_seen', 'firstSeen'])),
+      lastSeen: asDate(pick(s, ['last_seen', 'lastSeen'])),
+      tunnelStatus: pick(s, ['tunnel_status', 'tunnelStatus', 'status']),
+    },
+  };
+}
