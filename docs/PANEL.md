@@ -198,7 +198,7 @@ farshub panel-meta server > /var/lib/farshub/web/panel.json
 ```json
 {
   "role": "server",
-  "version": "FarsHub Tunnel 1.0.3 — موتور v1.0.3",
+  "version": "FarsHub Tunnel 1.0.4 — موتور v1.0.4",
   "host": {
     "name": "suitable-purple",
     "ip": "62.60.193.137",

@@ -46,7 +46,7 @@ EVENTS = [
 # so without the file the panel shows "سمت اجرا نامعلوم" and an empty specs card.
 PANEL_META = {
     "role": "server",
-    "version": "FarsHub Tunnel 1.0.3",
+    "version": "FarsHub Tunnel 1.0.4",
     "host": {
         "bind": "0.0.0.0:3080",
         "os": "Debian GNU/Linux 12 (bookworm)",

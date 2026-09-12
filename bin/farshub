@@ -10,7 +10,7 @@
 # ==========================================================================
 set -eu
 
-CLI_VERSION='1.0.3'
+CLI_VERSION='1.0.4'
 BRAND='FarsHub Tunnel'
 SUPPORT='https://t.me/vpsfa'
 
@@ -52,6 +52,41 @@ core_version() {
         -e 's/[Bb]ackhaul[[:space:]]*\([Pp]remium\)\{0,1\}//g' \
         -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' |
     sed -n '/[0-9]/{p;q;}'
+}
+
+# ------------------------------------------------------------------ DNS --
+# حل دامنه‌ی remote_addr برای status و check. getent روی توزیع‌های سرور
+# همیشه هست؛ نبودش (ویندوز، کانتینر مینیمال) بی‌صدا رد می‌شود — خروجی
+# خالی یعنی «نمی‌دانم»، نه «سالم است».
+resolve_host() {                    # $1=دامنه یا IP → IPها، هر خط یکی
+  getent hosts "$1" 2>/dev/null | awk 'NF{print $1}' | sort -u
+}
+
+# هاستِ remote_addr جدا از پورت. «[v6]:port» و «host:port» و «host» تنها.
+addr_host() {
+  case "$1" in
+    \[*\]:*) h=${1%%]*}; printf '%s\n' "${h#\[}" ;;
+    *:*)     printf '%s\n' "${1%%:*}" ;;
+    *)       printf '%s\n' "$1" ;;
+  esac
+}
+
+# بازه‌های پروکسی کلادفلر (cloudflare.com/ips). تطبیق الگویی است نه CIDR
+# دقیق — فقط برای هشدار به کار می‌رود، نه تصمیم. remote_addr پشت پروکسی
+# CF یعنی ترنسپورت غیر ws هرگز به سرور نمی‌رسد: CF فقط HTTP را عبور می‌دهد
+# و کانال کنترل موتور بی‌پایان «unexpected EOF» می‌گیرد (تجربه‌ی تولید).
+is_cloudflare_ip() {                # $1=IP → rc 0 اگر در بازه‌های CF بود
+  case "$1" in
+    104.1[6-9].*|104.2[0-9].*|104.3[01].*|172.6[4-9].*|172.7[01].*|\
+    162.15[89].*|188.114.9[6-9].*|188.114.10*|188.114.11[01].*|\
+    141.101.[6-9][0-9].*|141.101.1[0-2][0-9].*|108.162.19[0-9].*|\
+    108.162.2[0-5][0-9].*|190.93.24[0-9].*|190.93.25[0-5].*|\
+    198.41.12[89].*|198.41.1[3-9][0-9].*|198.41.2[0-5][0-9].*|\
+    103.21.24[4-7].*|103.22.20[0-3].*|103.31.[4-7].*|197.234.24[0-3].*|\
+    131.0.7[2-5].*|2606:4700:*|2a06:98c[0-7]:*|2400:cb00:*|2803:f800:*|\
+    2405:b500:*|2405:8100:*|2c0f:f248:*) return 0 ;;
+  esac
+  return 1
 }
 
 # ----------------------------------------------------------------- کمک‌ها --
@@ -369,6 +404,17 @@ cmd_status() {
     done
     grep -q '^[[:space:]]*token[[:space:]]*=[[:space:]]*"CHANGE_ME"' "$conf" &&
       say '  ⚠ توکن هنوز CHANGE_ME است — «farshub token» و بعد «farshub edit».'
+
+    # سمت کلاینت: remote_addr واقعاً به کجا حل می‌شود؟ دامنه‌ی پشت CDN
+    # همین‌جا لو می‌رود — علت شماره‌ی یکِ «تونل وصل نمی‌شود».
+    if [ "$side" = client ]; then
+      ra=$(sed -n "s/^[[:space:]]*remote_addr[[:space:]]*=[[:space:]]*//p" "$conf" \
+           | sed -e 's/[[:space:]]*#.*$//' -e 's/"//g' -e 's/[[:space:]]*$//' | head -n1)
+      if [ -n "$ra" ]; then
+        ips=$(resolve_host "$(addr_host "$ra")" | paste -sd' ' -)
+        [ -n "$ips" ] && printf '  %-12s : %s\n' "resolved" "$ips"
+      fi
+    fi
   fi
   say ''
   say "پشتیبانی: $SUPPORT"
@@ -606,6 +652,35 @@ cmd_check() {
 
     [ "$(val log_level)" = 'info' ] &&
       say '  ⚠ log_level=info مقدار توکن را در خطای mismatch لاگ می‌کند'
+
+    # سمت کلاینت: remote_addr پشت پروکسی کلادفلر با ترنسپورت غیر ws*
+    # کار نمی‌کند — CF فقط HTTP را عبور می‌دهد و کانال کنترل بی‌پایان
+    # «unexpected EOF» می‌گیرد. برای ws* عبور از CDN خودِ طراحی است
+    # (edge_ip)، پس آن‌ها را نمی‌سنجم.
+    if [ "$side" = client ]; then
+      case "$(val transport)" in
+        ws*) ;;
+        *)
+          ra=$(val remote_addr)
+          if [ -n "$ra" ]; then
+            host=$(addr_host "$ra")
+            ips=$(resolve_host "$host")
+            if [ -n "$ips" ]; then
+              cdn=''
+              for ip in $ips; do is_cloudflare_ip "$ip" && cdn=1; done
+              if [ -n "$cdn" ]; then
+                say "  ✗ remote_addr ($host) به CDN کلادفلر حل می‌شود — پروکسی CF"
+                say '    ترافیک غیر HTTP را عبور نمی‌دهد و تونل برقرار نمی‌شود.'
+                say '    IP مستقیم سرور یا رکورد DNS-only (ابر خاکستری) بگذارید.'
+                warn=$((warn + 1))
+              else
+                say "  ✓ remote_addr حل شد: $(printf '%s\n' "$ips" | paste -sd' ' -)"
+              fi
+            fi
+          fi
+          ;;
+      esac
+    fi
   fi
 
   if have_systemd; then
