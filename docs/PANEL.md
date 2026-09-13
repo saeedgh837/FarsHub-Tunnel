@@ -66,19 +66,22 @@ nginx را (اگر نباشد) نصب می‌کند، پنل را با `auth_bas
 می‌کند. `farshub panel-down` همه را برمی‌گرداند. فهرست کامل مسیرهایی که عوض
 می‌شوند در [CLI.md](CLI.md#panel-up-چه-چیزهایی-را-عوض-میکند).
 
-کانفیگی که می‌نویسد، تقریباً همین است:
+کانفیگی که می‌نویسد این است (با پیش‌فرض‌ها؛ خط `listen [::]:8088` فقط روی
+کرنل دارای IPv6 نوشته می‌شود):
 
 ```nginx
+# Created by 'farshub panel-up' - removed by 'farshub panel-down'.
+# Do not edit by hand; the next panel-up run will overwrite it.
 server {
     listen 8088;
-    listen [::]:8088;             # فقط اگر کرنل IPv6 داشته باشد
+    listen [::]:8088;
     server_name _;
 
     root /var/lib/farshub/web;
     index index.html;
 
-    # موتور اجرا هیچ احراز هویتی ندارد، پس لایه‌ی رمز اینجاست.
-    # از خود ماشین (تونل SSH) بدون رمز باز می‌شود.
+    # The engine has no authentication, so the password layer lives here.
+    # From the machine itself (SSH tunnel) it opens without a password.
     auth_basic           "FarsHub Tunnel";
     auth_basic_user_file /etc/nginx/farshub.htpasswd;
     satisfy any;
@@ -86,9 +89,21 @@ server {
     allow ::1;
     deny  all;
 
-    location = /stats { access_log off; proxy_pass http://127.0.0.1:2060/stats; }
-    location = /data  { access_log off; proxy_pass http://127.0.0.1:2060/data;  }
-    location = /peers.json { access_log off; }
+    # Only these two paths are proxied; the rest of the engine - including
+    # /debug/pprof - deliberately stays out. The panel polls every 2 seconds,
+    # so access logging is off; otherwise some 80,000 lines a day would hit
+    # the disk.
+    location = /stats {
+        access_log off;
+        proxy_pass http://127.0.0.1:2060/stats;
+    }
+    location = /data {
+        access_log off;
+        proxy_pass http://127.0.0.1:2060/data;
+    }
+    location = /peers.json {
+        access_log off;
+    }
 }
 ```
 
@@ -212,7 +227,7 @@ farshub panel-meta server > /var/lib/farshub/web/panel.json
 ```json
 {
   "role": "server",
-  "version": "FarsHub Tunnel 1.0.5 — موتور v1.0.4",
+  "version": "FarsHub Tunnel 1.0.6 — engine v1.0.4",
   "host": {
     "name": "suitable-purple",
     "ip": "62.60.193.137",
@@ -251,7 +266,9 @@ farshub panel-meta server > /var/lib/farshub/web/panel.json
 
 - **ساخت مجدد:** تایمری که `panel-up` نصب می‌کند (`farshub-peers.timer`)، ۱۵
   ثانیه پس از boot و بعد از آن هر ۳۰ ثانیه `farshub peers` را اجرا و خروجی را
-  اتمیک (tmp + mv) جایش می‌گذارد. خود `panel-up` هم بلافاصله یک‌بار می‌سازدش تا
+  اتمیک (tmp + mv) جایش می‌گذارد. یونیت سرویس همین تایمر خودش را
+  `After=farshub-<سمت>.service` می‌چیند تا تیکی که با ری‌استارت موتور هم‌زمان
+  شود شکست نخورد. خود `panel-up` هم بلافاصله یک‌بار می‌سازدش تا
   کارت همتایان تا نخستین تیک خالی نماند. `panel-down` تایمر و یونیت و فایل را
   برمی‌دارد — تا پنلِ خاموش داده‌ی کهنه نشان ندهد؛ فقط تاریخچه‌ی داخلی
   `peers-state.json` می‌ماند.

@@ -7,6 +7,9 @@
 هدف: کاربر در همه‌ی دستورها و خروجی‌ها فقط FarsHub را ببیند، بدون یک بایت
 تغییر در موتور اجرا.
 
+از نسخه‌ی ۱.۰.۶ همه‌ی خروجی‌های ترمینال این CLI و کامنت‌های کانفیگ‌ها و
+یونیت‌های systemd همراهش انگلیسی است؛ تا نسخه‌ی ۱.۰.۵ فارسی بودند.
+
 ## چرا اسکریپت، نه ویرایش باینری
 
 موتور اجرا `stripped` است و سورسش در این مخزن نیست. رشته‌های داخلی
@@ -30,6 +33,7 @@ offsetها را می‌شکند. پس هیچ‌کدام تغییر نکرده‌
 
 | دستور | کار |
 | --- | --- |
+| `setup [سمت]` | ویزارد اولین راه‌اندازی: پرسش و پاسخ، نوشتن کانفیگ و نصب |
 | `install <سمت>` | نصب موتور، کانفیگ و یونیت systemd |
 | `run <سمت>` | اجرای مستقیم در ترمینال، با فیلتر برندینگ |
 | `start` / `stop` / `restart` | کنترل سرویس |
@@ -62,6 +66,121 @@ offsetها را می‌شکند. پس هیچ‌کدام تغییر نکرده‌
 اگر سمت را ننویسید، از روی کانفیگ‌های نصب‌شده حدس زده می‌شود: اگر فقط یکی از
 `server.toml`/`client.toml` باشد همان برداشته می‌شود؛ اگر هر دو باشند خطا
 می‌دهد و صریح بودن می‌خواهد؛ اگر هیچ‌کدام نباشد به `install` ارجاع می‌دهد.
+
+## `setup` — ویزارد اولین راه‌اندازی
+
+`install` فایل‌ها را می‌گذارد ولی پر کردن کانفیگ با کاربر است؛ `setup` همان
+جای خالی را با پرسش و پاسخ پر می‌کند و نصب را هم خودش انجام می‌دهد. پرسش‌ها،
+هشدارها و پیشرفت نصب به stderr می‌روند و stdout فقط خلاصه و بلوک پایانی را
+دارد، پس خروجی pipe شده هم قابل اسکریپت‌نویسی است. سمت را اگر ندهید می‌پرسد؛
+برخلاف بقیه‌ی دستورها حدس نمی‌زند، حتی وقتی فقط یک سمت نصب است.
+
+پرسش‌های سمت سرور: نشانی Listen (پیش‌فرض `0.0.0.0:2083`)، ترنسپورت (پیش‌فرض
+`tcpmux`)، توکن (ساختن یا وارد کردن)، نگاشت پورت‌ها یکی‌یکی تا پاسخ خالی، و
+پورت پنل. سمت کلاینت: نشانی سرور، ترنسپورت، توکن و پورت پنل. پاسخ نامعتبر
+پرسش را تکرار می‌کند؛ سه پاسخ نامعتبر پیاپی، ویزارد را با پیام خطا لغو می‌کند.
+تنها استثنا حلقه‌ی نگاشت پورت‌هاست: مدخل نامعتبر فقط هشدار می‌گیرد و سقط
+نمی‌آورد.
+
+سه تصمیم که پشت این ویزارد است:
+
+- **اول همه چیز جمع می‌شود، بعد نوشتن.** لغو وسط راه (پایان ورودی، سه پاسخ
+  نامعتبر، رد تأیید) هیچ چیزی روی دیسک نمی‌گذارد؛ نه کانفیگ، نه یونیت، نه پنل.
+- **نوشتن اتمیک است** (فایل موقت + `mv`، به رسم `apply-config`) و نسخه‌ی قبلی
+  در `<کانفیگ>.bak` می‌ماند. اگر از قبل کانفیگ باشد، پیش از پرسش‌ها درباره‌ی
+  بازنویسی‌اش تأیید می‌گیرد و پاسخ منفی یعنی همان فایل دست‌نخورده بماند.
+- **نصب، همان `install` است.** بعد از نوشتن کانفیگ، همان کارهایی که `install`
+  می‌کند دوباره اجرا می‌شود: موتور اجرا، دستور `farshub`، یونیت systemd، پنل
+  وب و payload. سرویس روشن نمی‌شود؛ بلوک `Next:` خلاصه، `start` و `check` و
+  `panel-up` را پیشنهاد می‌دهد.
+
+سمت کلاینت، نشانی سرور حل می‌شود و اگر به IPهای پروکسی کلادفلر برسد و
+ترنسپورت `ws*` نباشد، هشدار می‌دهد و درباره‌ی ادامه می‌پرسد: پروکسی CF فقط
+HTTP را عبور می‌دهد و کانال کنترل بی‌پایان `unexpected EOF` می‌گیرد. پاسخ منفی
+یعنی لغو؛ برای `ws*` هشداری نیست، چون عبور از CDN خودِ طراحی آن است. دامنه‌ای
+که حل نشود فقط هشدار می‌دهد و همان‌طور که نوشته شده پیکربندی می‌شود.
+
+خلاصه، توکن را کامل چاپ می‌کند (تازه‌ساخته یا واردشده)؛ تنها استثنای قاعده‌ی
+[توکن هرگز چاپ نمی‌شود](#توکن-هرگز-چاپ-نمیشود). دلیل: توکن باید به طرف مقابل
+برسد و اگر ماسک می‌شد، راهی برای کپی‌کردنش نبود.
+
+کد خروج:
+
+| کد | معنی |
+| --- | --- |
+| `0` | کانفیگ نوشته و نصب انجام شد |
+| `1` | لغو: پایان ورودی، سه پاسخ نامعتبر پیاپی، نگه‌داشتن کانفیگ موجود، رد تأیید نهایی یا ردِ ادامه با نشانی پشت کلادفلر |
+| `2` | آرگومان سمت نامعتبر |
+
+نمونه‌ی اجرای کامل سمت سرور، پس از `install`. پاسخ خالی یعنی Enter و انتخاب
+پیش‌فرض؛ پرسش‌ها و پیشرفت نصب روی stderr می‌روند و خلاصه روی stdout، اینجا با
+هم نشان داده شده‌اند:
+
+```console
+$ sudo farshub setup server
+Config file /etc/farshub/server.toml already exists. Overwrite? [y/N]: y
+Tunnel listen address [0.0.0.0:2083]:
+Transport [tcpmux]:
+Auth token - [g]enerate or [e]nter [g]:
+Port mapping (local=remote[:dest]) - empty to finish: 443
+Port mapping (local=remote[:dest]) - empty to finish: 8443=443
+Port mapping (local=remote[:dest]) - empty to finish:
+Web/panel port [0]:
+Side:           server
+Listen:         0.0.0.0:2083
+Transport:      tcpmux
+Token:          ac356bd0e9fad2e08283c0f4a3626cea0cfaa13f6446678768ef5852ef7e438b
+Ports:          443, 8443=443
+Web port:       0
+Write config and install? [Y/n]:
+Installing FarsHub Tunnel — server side
+  engine   → /usr/local/libexec/farshub-core
+  command  → /usr/local/bin/farshub
+  config   → /etc/farshub/server.toml (already existed, left untouched)
+  panel    → /var/lib/farshub/web
+  source   → /var/lib/farshub/payload
+  service  → /etc/systemd/system/farshub-server.service
+Setup complete.
+Config: /etc/farshub/server.toml
+Next:
+  sudo farshub start
+  sudo farshub check
+  sudo farshub panel-up    (optional web panel)
+```
+
+و سمت کلاینت، با همان توکنی که ویزارد سرور ساخته و در خلاصه چاپ کرده است
+(مسیر `e`):
+
+```console
+$ sudo farshub setup client
+Config file /etc/farshub/client.toml already exists. Overwrite? [y/N]: y
+Server address (host:port): 31.56.178.224:2083
+Transport [tcpmux]:
+Auth token (must match the server) - [g]enerate or [e]nter [g]: e
+Token: ac356bd0e9fad2e08283c0f4a3626cea0cfaa13f6446678768ef5852ef7e438b
+Web/panel port [0]:
+Side:           client
+Server:         31.56.178.224:2083
+Resolved:       31.56.178.224
+Transport:      tcpmux
+Token:          ac356bd0e9fad2e08283c0f4a3626cea0cfaa13f6446678768ef5852ef7e438b
+Web port:       0
+Write config and install? [Y/n]:
+Installing FarsHub Tunnel — client side
+  engine   → /usr/local/libexec/farshub-core
+  command  → /usr/local/bin/farshub
+  config   → /etc/farshub/client.toml (already existed, left untouched)
+  panel    → /var/lib/farshub/web
+  source   → /var/lib/farshub/payload
+  service  → /etc/systemd/system/farshub-client.service
+Setup complete.
+Config: /etc/farshub/client.toml
+Next:
+  sudo farshub start
+  sudo farshub check
+  sudo farshub panel-up    (optional web panel)
+The token must match the server side exactly.
+```
 
 ## فیلتر برندینگ
 
@@ -258,6 +377,9 @@ printf 'transport=wssmux\nports+=443\nports+=2000-2100\n' | farshub apply-config
 راهی است که پنل بفهمد توکن هنوز تنظیم نشده — توکن واقعی هیچ‌وقت بیرون نمی‌رود،
 پس طولش هم قابل سنجش نیست.
 
+استثنای دیگر خلاصه‌ی [`setup`](#setup--ویزارد-اولین-راهاندازی) است: توکن را
+کامل چاپ می‌کند (تازه‌ساخته یا واردشده) تا به طرف مقابل برسد.
+
 ## `install` و پنل وب
 
 `install` علاوه بر موتور، کانفیگ و یونیت، پوشه‌ی `web/` را هم در
@@ -296,7 +418,7 @@ FarsHub هم مینویسد**. فهرست کامل، تا بدانید `panel-do
 | `/etc/nginx/sites-enabled/default` | فقط اگر nginx را همین دستور نصب کرده باشد، لینکش برداشته می‌شود | برنمی‌گردد |
 | `/var/lib/farshub/web/panel.json` | از نو ساخته می‌شود | می‌ماند |
 | `/var/lib/farshub/panel.conf` | حالت، تا `panel-down` بداند چه چیزی را برگرداند | حذف می‌شود |
-| `/etc/systemd/system/farshub-peers.service` | oneshot؛ هر تیک، خروجی `farshub peers` را اتمیک (tmp + mv) در `peers.json` می‌نویسد | حذف می‌شود |
+| `/etc/systemd/system/farshub-peers.service` | oneshot؛ هر تیک، خروجی `farshub peers` را اتمیک (tmp + mv) در `peers.json` می‌نویسد؛ خودش را `After=farshub-<سمت>.service` می‌چیند تا تیکی که با ری‌استارت موتور هم‌زمان شود شکست نخورد | حذف می‌شود |
 | `/etc/systemd/system/farshub-peers.timer` | هر ۳۰ ثانیه (نخستین اجرا ۱۵ ثانیه پس از boot)؛ `enable --now` می‌شود | حذف می‌شود |
 | `/var/lib/farshub/web/peers.json` | همان خروجی `farshub peers`؛ `panel-up` بلافاصله یک‌بار می‌سازدش تا کارت همتاها تا نخستین تیک خالی نماند | حذف می‌شود |
 | `/var/lib/farshub/peers-state.json` | تاریخچه‌ی `first_seen` دستور `peers` | می‌ماند |
