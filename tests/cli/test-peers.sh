@@ -333,7 +333,7 @@ assert_eq 'ss غایب: state بایت‌به‌بایت دست‌نخورده' 
 reset_stub_env
 prun "$s1" peers bogus
 assert_rc 'سمت نامعتبر: rc 2' 2
-assert_contains 'سمت نامعتبر: پیام' "$ERR" 'سمت نامعتبر'
+assert_contains 'سمت نامعتبر: پیام' "$ERR" 'invalid side'
 
 e=$(fixture); rm_on_exit="$rm_on_exit $e"
 prun "$e" peers

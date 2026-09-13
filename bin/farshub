@@ -33,7 +33,7 @@ say()  { printf '%s\n' "$*"; }
 # باز‌نشده)، و در آخر PATH.
 find_core() {
   if [ -n "${FARSHUB_CORE:-}" ]; then
-    [ -x "$FARSHUB_CORE" ] || die "FARSHUB_CORE اجرایی نیست: $FARSHUB_CORE"
+    [ -x "$FARSHUB_CORE" ] || die "FARSHUB_CORE is not executable: $FARSHUB_CORE"
     printf '%s\n' "$FARSHUB_CORE"; return
   fi
   for c in "$LIBEXEC/farshub-core" "$self_dir/farshub-core" \
@@ -41,7 +41,7 @@ find_core() {
     [ -x "$c" ] && { printf '%s\n' "$c"; return; }
   done
   c=$(command -v farshub-core 2>/dev/null) && { printf '%s\n' "$c"; return; }
-  die 'موتور اجرا پیدا نشد. اول «farshub install» را اجرا کنید.'
+  die "engine not found - run 'farshub install' first."
 }
 
 # نسخه‌ی موتور، پاک‌شده از برندینگ و لینک فروشنده‌ی آپ‌استریم.
@@ -110,7 +110,7 @@ side_conf() {
   case "$1" in
     server|s) printf '%s\n' "$CONF_DIR/server.toml" ;;
     client|c) printf '%s\n' "$CONF_DIR/client.toml" ;;
-    *) die "سمت نامعتبر: «$1» (server یا client)" ;;
+    *) die "invalid side: '$1' (server or client)" ;;
   esac
 }
 
@@ -118,7 +118,7 @@ side_unit() {
   case "$1" in
     server|s) printf '%s-server.service\n' "$UNIT_PREFIX" ;;
     client|c) printf '%s-client.service\n' "$UNIT_PREFIX" ;;
-    *) die "سمت نامعتبر: «$1» (server یا client)" ;;
+    *) die "invalid side: '$1' (server or client)" ;;
   esac
 }
 
@@ -130,9 +130,9 @@ guess_side() {
   if [ "$has_s" = 1 ] && [ "$has_c" = 0 ]; then printf 'server\n'; return; fi
   if [ "$has_c" = 1 ] && [ "$has_s" = 0 ]; then printf 'client\n'; return; fi
   if [ "$has_s" = 0 ] && [ "$has_c" = 0 ]; then
-    die "کانفیگی در $CONF_DIR نیست. «farshub install» را اجرا کنید."
+    die "no config in $CONF_DIR - run 'farshub install'."
   fi
-  die 'هر دو سمت نصب است — صریح بگویید: farshub '"$1"' server|client'
+  die 'both sides are installed - be explicit: farshub '"$1"' server|client'
 }
 
 # مثل guess_side ولی وقتی هیچ سمتی نصب نیست یا هر دو نصب‌اند، فقط ساکت
@@ -147,7 +147,7 @@ guess_side_soft() {
 }
 
 need_root() {
-  [ "$(id -u)" = 0 ] || die 'این دستور به root نیاز دارد (sudo).'
+  [ "$(id -u)" = 0 ] || die 'this command requires root (sudo).'
 }
 
 # نصب در مسیرهای پیش‌فرض root می‌خواهد؛ نصب در یک prefix شخصی (متغیرهای
@@ -157,7 +157,7 @@ need_write() {
   for d in "$@"; do
     p=$d
     while [ ! -e "$p" ] && [ "$p" != '/' ]; do p=$(dirname -- "$p"); done
-    [ -w "$p" ] || die "دسترسی نوشتن به $d نیست — با sudo اجرا کنید."
+    [ -w "$p" ] || die "no write access to $d - run with sudo."
   done
 }
 
@@ -206,7 +206,7 @@ panel_json() {
 
   ver="$BRAND $CLI_VERSION"
   cv=$(core_version 2>/dev/null) || cv=''
-  [ -n "$cv" ] && ver="$ver — موتور $cv"
+  [ -n "$cv" ] && ver="$ver — engine $cv"
 
   os=$(. /etc/os-release 2>/dev/null && printf '%s' "${PRETTY_NAME:-}") || os=''
 
@@ -229,70 +229,70 @@ panel_json() {
 # --------------------------------------------------------------- راهنما --
 cmd_help() {
   cat <<EOF
-$BRAND — تونل معکوس برای عبور از NAT و فیلترینگ
+$BRAND — reverse tunnel for getting past NAT and filtering
 
-استفاده:
-  farshub <دستور> [سمت] [گزینه‌ها]
+Usage:
+  farshub <command> [side] [options]
 
-«سمت» یکی از server یا client است. اگر فقط یک سمت روی این ماشین نصب باشد،
-می‌توانید ننویسید.
+'side' is either server or client. If only one side is installed on this
+machine, you can leave it out.
 
-دستورها:
-  install <سمت>     نصب موتور، کانفیگ و سرویس systemd روی این ماشین
-  run <سمت>         اجرای مستقیم در ترمینال (بدون systemd) — برای عیب‌یابی
-  start <سمت>       راه‌اندازی سرویس
-  stop <سمت>        توقف سرویس
-  restart <سمت>     راه‌اندازی مجدد سرویس
-  enable <سمت>      اجرای خودکار در boot + راه‌اندازی فوری
-  disable <سمت>     لغو اجرای خودکار + توقف
-  status [سمت]      وضعیت سرویس و خلاصه‌ی کانفیگ
-  logs [سمت] [-n N] آخرین رویدادها (پیش‌فرض ۵۰ خط)؛ با -f زنده دنبال کن
-  config [سمت]      نمایش مسیر و محتوای کانفیگ
-  apply-config <سمت> نوشتن کانفیگ از stdin (JSON یا خطوط «کلید=مقدار»)
-  edit [سمت]        باز کردن کانفیگ در ویرایشگر (\$EDITOR)
-  token             ساخت توکن تصادفی ۳۲ بایتی
-  check [سمت]       بررسی سلامت نصب و هشدارهای امنیتی
-  peers [سمت]       همتاها و اتصال‌های برقرار به‌صورت JSON — first_seen = شروع همین دوره‌ی اتصال پیوسته
-  panel-up [سمت]    بالا آوردن پنل وب: nginx + رمز + فایروال، یک‌جا
-  panel-down        برگرداندن همه‌ی تغییرهای panel-up
-  panel             توضیح پنل وب و گزینه‌هایش
-  panel-meta [سمت]  ساخت panel.json پنل (نقش، نسخه، مشخصات میزبان)
-  paths [سمت]       نشان دادن همه‌ی مسیرها و نام‌های این نصب
-  version           نسخه‌ی FarsHub و موتور اجرا
-  support           راه ارتباط با پشتیبانی
-  help              همین متن
+Commands:
+  install <side>      install the engine, config and systemd service on this machine
+  run <side>          run directly in the terminal (no systemd) — for debugging
+  start <side>        start the service
+  stop <side>         stop the service
+  restart <side>      restart the service
+  enable <side>       autostart at boot + start now
+  disable <side>      cancel autostart + stop
+  status [side]       service status and a config summary
+  logs [side] [-n N]  latest events (default 50 lines); follow live with -f
+  config [side]       show the config path and contents
+  apply-config <side> write the config from stdin (JSON or 'key=value' lines)
+  edit [side]         open the config in your editor (\$EDITOR)
+  token               generate a random 32-byte token
+  check [side]        health check of the install and security warnings
+  peers [side]        peers and live connections as JSON — first_seen = start of this continuous connection period
+  panel-up [side]     bring up the web panel: nginx + password + firewall, all at once
+  panel-down          revert every change made by panel-up
+  panel               what the web panel is and its options
+  panel-meta [side]   build the panel's panel.json (role, version, host specs)
+  paths [side]        show all paths and names of this installation
+  version             FarsHub and engine version
+  support             how to reach support
+  help                this text
 
-گزینه‌های panel-up:
-  --port N          پورت پنل (پیش‌فرض 8088)
-  --user NAME       نام کاربری ورود (پیش‌فرض farshub)
-  --password PASS   رمز دلخواه (ندهید: رمز تصادفی ساخته و چاپ می‌شود)
-  --new-password    رمز تصادفی تازه به‌جای حفظ رمز قبلی
-  --sniffer         روشن کردن sniffer تا جدول پورت‌ها پر شود
+panel-up options:
+  --port N          panel port (default 8088)
+  --user NAME       login username (default farshub)
+  --password PASS   custom password (leave it out: a random password is generated and printed)
+  --new-password    a fresh random password instead of keeping the old one
+  --sniffer         turn on the sniffer so the ports table fills up
 
-نمونه:
+Examples:
   farshub install server
   farshub token
   farshub edit server
   farshub enable server
-  farshub panel-up --sniffer                          # رمز تصادفی
-  farshub panel-up --user admin --password MyPass123  # رمز دلخواه
+  farshub panel-up --sniffer                          # random password
+  farshub panel-up --user admin --password MyPass123  # custom password
   farshub logs -f
 
-پشتیبانی: $SUPPORT
+Support: $SUPPORT
 EOF
 }
 
 cmd_support() {
-  say "پشتیبانی $BRAND"
+  say "$BRAND support"
   say ''
-  say "برای راه‌اندازی، خرید سرور یا رفع اشکال تونل در تلگرام پیام بدهید:"
+  say 'For setup, buying a server, or tunnel troubleshooting, message us on Telegram:'
   say "  $SUPPORT"
 }
 
 cmd_version() {
   say "$BRAND $CLI_VERSION"
   cv=$(core_version 2>/dev/null || true)
-  [ -n "$cv" ] && say "موتور اجرا: $cv"
+  [ -n "$cv" ] && say "Engine: $cv"
   return 0
 }
 
@@ -302,7 +302,7 @@ cmd_token() {
   elif [ -r /dev/urandom ] && command -v od >/dev/null 2>&1; then
     od -An -tx1 -N32 /dev/urandom | tr -d ' \n'; printf '\n'
   else
-    die 'نه openssl هست و نه /dev/urandom — توکن را دستی بسازید.'
+    die 'neither openssl nor /dev/urandom is available - generate the token manually.'
   fi
 }
 
@@ -335,16 +335,16 @@ cmd_run() {
   side=${1:-}
   [ -n "$side" ] || side=$(guess_side run)
   conf=$(side_conf "$side")
-  [ -f "$conf" ] || die "کانفیگ نیست: $conf"
+  [ -f "$conf" ] || die "config not found: $conf"
   core=$(find_core)
-  say "$BRAND — اجرای مستقیم سمت $side ($conf)"
-  say 'برای توقف Ctrl+C. برای اجرای دائمی از farshub enable استفاده کنید.'
+  say "$BRAND — running the $side side directly ($conf)"
+  say 'Press Ctrl+C to stop. Use farshub enable to run it permanently.'
   say ''
   # pipe کد خروج را می‌خورد (sh POSIX ‏PIPESTATUS ندارد)، پس آن را از یک فایل
   # موقت برمی‌گردانیم — عیب‌یابی بدون کد خروج درست بی‌فایده است. `|| rc=$?`
   # هم لازم است تا set -e زیرپوسته را قبل از نوشتن فایل نکشد.
   # 2>&1 لازم است چون موتور لاگ را روی stderr می‌نویسد.
-  rcf=$(mktemp) || die 'ساخت فایل موقت ناموفق بود.'
+  rcf=$(mktemp) || die 'could not create a temporary file.'
   { rc=0; "$core" -c "$conf" 2>&1 || rc=$?; printf '%s' "$rc" >"$rcf"; } | brand_filter
   rc=$(cat "$rcf" 2>/dev/null || printf 1); rm -f "$rcf"
   return "${rc:-1}"
@@ -358,7 +358,7 @@ cmd_exec() {
   side=${1:-}
   [ -n "$side" ] || side=$(guess_side run)
   conf=$(side_conf "$side")
-  [ -f "$conf" ] || die "کانفیگ نیست: $conf"
+  [ -f "$conf" ] || die "config not found: $conf"
   core=$(find_core)
   exec "$core" -c "$conf"
 }
@@ -367,15 +367,15 @@ cmd_exec() {
 svc() {
   action=$1; side=${2:-}
   [ -n "$side" ] || side=$(guess_side "$action")
-  have_systemd || die 'systemctl در دسترس نیست. از «farshub run» استفاده کنید.'
+  have_systemd || die "systemctl is not available. Use 'farshub run' instead."
   unit=$(side_unit "$side")
   case "$action" in
     start|stop|restart) need_root; systemctl "$action" "$unit"
-      say "سرویس $side: $action انجام شد." ;;
+      say "service $side: $action done." ;;
     enable)  need_root; systemctl enable --now "$unit"
-      say "سرویس $side فعال شد و در boot خودکار بالا می‌آید." ;;
+      say "service $side enabled and autostarted at boot." ;;
     disable) need_root; systemctl disable --now "$unit"
-      say "سرویس $side غیرفعال و متوقف شد." ;;
+      say "service $side disabled and stopped." ;;
   esac
 }
 
@@ -388,26 +388,26 @@ cmd_status() {
   conf=$(side_conf "$side")
   unit=$(side_unit "$side")
 
-  say "$BRAND — وضعیت سمت $side"
+  say "$BRAND — status of the $side side"
   say ''
   if have_systemd; then
     state=$(systemctl is-active "$unit" 2>/dev/null || true)
     boot=$(systemctl is-enabled "$unit" 2>/dev/null || true)
     case "$state" in
-      active) say '  سرویس        : در حال اجرا' ;;
-      inactive) say '  سرویس        : متوقف' ;;
-      failed) say '  سرویس        : خطا — «farshub logs» را ببینید' ;;
-      *) say "  سرویس        : ${state:-نصب نشده}" ;;
+      active) say '  Service      : running' ;;
+      inactive) say '  Service      : stopped' ;;
+      failed) say "  Service      : failed - see 'farshub logs'" ;;
+      *) say "  Service      : ${state:-not installed}" ;;
     esac
     case "$boot" in
-      enabled) say '  اجرا در boot : بله' ;;
-      disabled) say '  اجرا در boot : خیر' ;;
-      *) say "  اجرا در boot : ${boot:-نامعلوم}" ;;
+      enabled) say '  Autostart    : yes' ;;
+      disabled) say '  Autostart    : no' ;;
+      *) say "  Autostart    : ${boot:-unknown}" ;;
     esac
   else
-    say '  سرویس        : systemd در دسترس نیست'
+    say '  Service      : systemd not available'
   fi
-  say "  کانفیگ       : $conf"
+  say "  Config       : $conf"
 
   # خلاصه‌ی مقادیر کلیدی؛ token هرگز چاپ نمی‌شود.
   if [ -f "$conf" ]; then
@@ -418,7 +418,7 @@ cmd_status() {
       [ -n "$v" ] && printf '  %-12s : %s\n' "$k" "$v"
     done
     grep -q '^[[:space:]]*token[[:space:]]*=[[:space:]]*"CHANGE_ME"' "$conf" &&
-      say '  ⚠ توکن هنوز CHANGE_ME است — «farshub token» و بعد «farshub edit».'
+      say "  ⚠ token is still CHANGE_ME - run 'farshub token', then 'farshub edit'."
 
     # سمت کلاینت: remote_addr واقعاً به کجا حل می‌شود؟ دامنه‌ی پشت CDN
     # همین‌جا لو می‌رود — علت شماره‌ی یکِ «تونل وصل نمی‌شود».
@@ -432,7 +432,7 @@ cmd_status() {
     fi
   fi
   say ''
-  say "پشتیبانی: $SUPPORT"
+  say "Support: $SUPPORT"
 }
 
 cmd_logs() {
@@ -443,12 +443,12 @@ cmd_logs() {
       -n) shift; lines=${1:-50} ;;
       -n*) lines=${1#-n} ;;
       server|s|client|c) side=$1 ;;
-      *) die "گزینه‌ی ناشناس: $1" ;;
+      *) die "unknown option: $1" ;;
     esac
     shift
   done
   [ -n "$side" ] || side=$(guess_side logs)
-  have_systemd || die 'systemctl نیست؛ لاگ سرویس در دسترس نیست.'
+  have_systemd || die 'systemctl not available; service logs are not accessible.'
   unit=$(side_unit "$side")
   if [ "$follow" = 1 ]; then
     journalctl -u "$unit" -n "$lines" -f --no-pager | brand_filter
@@ -461,7 +461,7 @@ cmd_config() {
   side=${1:-}
   [ -n "$side" ] || side=$(guess_side config)
   conf=$(side_conf "$side")
-  [ -f "$conf" ] || die "کانفیگ نیست: $conf"
+  [ -f "$conf" ] || die "config not found: $conf"
   say "# $conf"
   say ''
   # توکن ماسک می‌شود، ولی جای‌نگهدار CHANGE_ME نه: راز نیست، و دیدنش تنها
@@ -469,21 +469,21 @@ cmd_config() {
   # نمی‌رود، پس طولش هم قابل سنجش نیست).
   # «b» بی‌برچسب یعنی از اسکریپت بیرون بزن، پس خط CHANGE_ME به ماسک نمی‌رسد.
   sed '/^[[:space:]]*token[[:space:]]*=[[:space:]]*"CHANGE_ME"/b
-       s/^\([[:space:]]*token[[:space:]]*=[[:space:]]*\).*/\1"********"   # مخفی شده/' "$conf"
+       s/^\([[:space:]]*token[[:space:]]*=[[:space:]]*\).*/\1"********"   # masked/' "$conf"
 }
 
 cmd_edit() {
   side=${1:-}
   [ -n "$side" ] || side=$(guess_side edit)
   conf=$(side_conf "$side")
-  [ -f "$conf" ] || die "کانفیگ نیست: $conf"
+  [ -f "$conf" ] || die "config not found: $conf"
   ed=${EDITOR:-${VISUAL:-}}
   if [ -z "$ed" ]; then
     for e in nano vim vi; do command -v "$e" >/dev/null 2>&1 && { ed=$e; break; }; done
   fi
-  [ -n "$ed" ] || die 'ویرایشگری پیدا نشد. $EDITOR را ست کنید.'
+  [ -n "$ed" ] || die 'no editor found. Set $EDITOR.'
   "$ed" "$conf"
-  say 'برای اعمال تغییرات: farshub restart '"$side"
+  say 'To apply the changes: farshub restart '"$side"
 }
 
 # ------------------------------------------------------------------ نصب --
@@ -496,7 +496,7 @@ find_payload() {
   elif [ -f "$PAYLOAD_DIR/configs/server.toml" ]; then
     printf '%s\n' "$PAYLOAD_DIR"
   else
-    die "فایل‌های نصب پیدا نشد — نه کنار اسکریپت، نه در $PAYLOAD_DIR."
+    die "install files not found - neither next to the script nor in $PAYLOAD_DIR."
   fi
 }
 
@@ -505,7 +505,7 @@ find_payload() {
 write_unit_env() {                      # $1=مسیر drop-in  $2=سمت
   mkdir -p "$(dirname -- "$1")"
   cat >"$1" <<EOF
-# ساخته‌ی «farshub install» — چون مسیرهای FARSHUB_* پیش‌فرض نبودند.
+# Created by 'farshub install' - the FARSHUB_* paths were not at their defaults.
 [Service]
 Environment=FARSHUB_CONF_DIR=$CONF_DIR
 Environment=FARSHUB_LIBEXEC=$LIBEXEC
@@ -522,9 +522,9 @@ EOF
 
 cmd_install() {
   side=${1:-}
-  [ -n "$side" ] || die 'سمت را بگویید: farshub install server|client'
+  [ -n "$side" ] || die 'missing side: farshub install server|client'
   case "$side" in server|s) side=server ;; client|c) side=client ;;
-    *) die "سمت نامعتبر: «$side»" ;; esac
+    *) die "invalid side: '$side' (server or client)" ;; esac
   need_write "$LIBEXEC" "$BIN_DIR" "$CONF_DIR" "$LOG_DIR" "$STATE_DIR"
 
   # کانفیگ‌ها و یونیت‌ها: از مخزن یا از payload نصب قبلی.
@@ -535,23 +535,23 @@ cmd_install() {
            "$BIN_DIR/farshub-core"; do
     [ -f "$c" ] && { core=$c; break; }
   done
-  [ -n "$core" ] || die 'farshub-core نه کنار این اسکریپت است و نه نصب شده.'
+  [ -n "$core" ] || die 'farshub-core is neither next to this script nor installed.'
 
-  say "نصب $BRAND — سمت $side"
+  say "Installing $BRAND — $side side"
 
   # اگر همان فایل مقصد است، cp روی خودش خطا می‌دهد.
   [ "$core" = "$LIBEXEC/farshub-core" ] ||
     install -Dm755 "$core" "$LIBEXEC/farshub-core"
   [ "$self_dir/farshub" = "$BIN_DIR/farshub" ] ||
     install -Dm755 "$self_dir/farshub" "$BIN_DIR/farshub"
-  say "  موتور  → $LIBEXEC/farshub-core"
-  say "  دستور  → $BIN_DIR/farshub"
+  say "  engine   → $LIBEXEC/farshub-core"
+  say "  command  → $BIN_DIR/farshub"
 
   if [ -f "$CONF_DIR/$side.toml" ]; then
-    say "  کانفیگ → $CONF_DIR/$side.toml (موجود بود، دست نخورد)"
+    say "  config   → $CONF_DIR/$side.toml (already existed, left untouched)"
   else
     install -Dm600 "$repo/configs/$side.toml" "$CONF_DIR/$side.toml"
-    say "  کانفیگ → $CONF_DIR/$side.toml"
+    say "  config   → $CONF_DIR/$side.toml"
   fi
 
   install -d -m755 "$LOG_DIR" "$STATE_DIR"
@@ -565,7 +565,7 @@ cmd_install() {
     chmod -R u=rwX,go=rX "$STATE_DIR/web"
     panel_json "$side" >"$STATE_DIR/web/panel.json"
     chmod 644 "$STATE_DIR/web/panel.json"
-    say "  پنل    → $STATE_DIR/web"
+    say "  panel    → $STATE_DIR/web"
   fi
 
   # payload تا نصب سمت دوم بی‌مخزن هم کار کند. اگر منبع خودِ payload بود
@@ -576,32 +576,32 @@ cmd_install() {
     cp "$repo/systemd/farshub-server.service" "$repo/systemd/farshub-client.service" \
        "$PAYLOAD_DIR/systemd/"
     chmod -R u=rwX,go=rX "$PAYLOAD_DIR"
-    say "  منبع   → $PAYLOAD_DIR"
+    say "  source   → $PAYLOAD_DIR"
   fi
 
   # نوشتن فایل یونیت به systemd گره نمی‌خورد — فقط daemon-reload.
   unit=$(side_unit "$side")
   install -Dm644 "$repo/systemd/farshub-$side.service" "$UNIT_DIR/$unit"
-  say "  سرویس  → $UNIT_DIR/$unit"
+  say "  service  → $UNIT_DIR/$unit"
   if [ "$UNIT_PREFIX" != 'farshub' ] || [ "$CONF_DIR" != '/etc/farshub' ] ||
      [ "$BIN_DIR" != '/usr/local/bin' ] || [ "$STATE_DIR" != '/var/lib/farshub' ]; then
     write_unit_env "$UNIT_DIR/$unit.d/10-farshub-env.conf" "$side"
-    say "  محیط   → $UNIT_DIR/$unit.d/10-farshub-env.conf"
+    say "  env      → $UNIT_DIR/$unit.d/10-farshub-env.conf"
   fi
   if have_systemd; then
     systemctl daemon-reload
   else
-    say '  سرویس  → daemon-reload رد شد (systemd نیست)'
+    say '  service  → daemon-reload skipped (systemd not available)'
   fi
 
   say ''
-  say 'گام بعد:'
-  say '  1) farshub token          # توکن بساز'
-  say "  2) farshub edit $side     # توکن و پورت‌ها را بگذار"
-  say "  3) farshub enable $side   # راه‌اندازی و اجرای خودکار در boot"
-  say '  4) farshub panel-up       # پنل وب (اختیاری) — nginx + رمز + فایروال'
+  say 'Next steps:'
+  say '  1) farshub token          # generate the token'
+  say "  2) farshub edit $side     # set the token and ports"
+  say "  3) farshub enable $side   # start now and autostart at boot"
+  say '  4) farshub panel-up       # web panel (optional) — nginx + password + firewall'
   say ''
-  say 'توکن باید در دو طرف تونل عیناً یکسان باشد.'
+  say 'The token must be exactly the same on both ends of the tunnel.'
 }
 
 # ---------------------------------------------------------------- بررسی --
@@ -616,26 +616,26 @@ cmd_check() {
   conf=$(side_conf "$side")
   warn=0
 
-  say "$BRAND — بررسی نصب سمت $side"
+  say "$BRAND — install check for the $side side"
   say ''
 
   if core=$(find_core 2>/dev/null); then
-    say "  ✓ موتور اجرا: $core"
+    say "  ✓ engine: $core"
   else
-    say '  ✗ موتور اجرا پیدا نشد'; warn=$((warn + 1))
+    say '  ✗ engine not found'; warn=$((warn + 1))
   fi
 
   if [ -f "$conf" ]; then
-    say "  ✓ کانفیگ: $conf"
+    say "  ✓ config: $conf"
     perm=$(stat -c '%a' "$conf" 2>/dev/null || echo '?')
     case "$perm" in
-      600|400) say "  ✓ دسترسی کانفیگ: $perm" ;;
-      ?) say '  … دسترسی کانفیگ خوانده نشد' ;;
-      *) say "  ✗ دسترسی کانفیگ $perm — توکن قابل خواندن است. chmod 600 بزنید."
+      600|400) say "  ✓ config permissions: $perm" ;;
+      ?) say '  … config permissions could not be read' ;;
+      *) say "  ✗ config permissions $perm — the token is readable. Run chmod 600."
          warn=$((warn + 1)) ;;
     esac
   else
-    say "  ✗ کانفیگ نیست: $conf"; warn=$((warn + 1))
+    say "  ✗ config not found: $conf"; warn=$((warn + 1))
   fi
 
   if [ -f "$conf" ]; then
@@ -643,14 +643,14 @@ cmd_check() {
             | sed -e 's/[[:space:]]*#.*$//' -e 's/"//g' -e 's/[[:space:]]*$//' | head -n1; }
 
     [ "$(val token)" = 'CHANGE_ME' ] && {
-      say '  ✗ توکن هنوز CHANGE_ME است — تونل با این مقدار امن نیست'
+      say '  ✗ token is still CHANGE_ME - the tunnel is not secure with this value'
       warn=$((warn + 1)); }
 
     t=$(val transport)
     case "$t" in
-      wss|wssmux) say "  ✓ ترانسپورت $t (رمزنگاری‌شده)" ;;
+      wss|wssmux) say "  ✓ transport $t (encrypted)" ;;
       '') ;;
-      *) say "  ⚠ ترانسپورت $t رمزنگاری ندارد — برای رمزنگاری wss یا wssmux" ;;
+      *) say "  ⚠ transport $t has no encryption - use wss or wssmux for encryption" ;;
     esac
 
     w=$(val web_port)
@@ -658,18 +658,18 @@ cmd_check() {
       # panel-up پورت را با drop-in سرویس از بیرون می‌بندد؛ وجود همان فایل
       # تفاوت «باز روی اینترنت» و «فقط از خود ماشین» است.
       if [ -f "$UNIT_DIR/$(side_unit "$side").d/10-firewall.conf" ]; then
-        say "  ✓ web_port=$w روشن است و با فایروال فقط از خود ماشین باز است"
+        say "  ✓ web_port=$w is on and the firewall limits it to this machine only"
       else
-        say "  ⚠ web_port=$w باز است و احراز هویت ندارد — «farshub panel-up» ببندیدش"
+        say "  ⚠ web_port=$w is open with no authentication - close it with 'farshub panel-up'"
       fi
     fi
 
     [ "$(val pprof)" = 'true' ] &&
-      { say '  ✗ pprof=true — روی 0.0.0.0:6060 بدون auth باز می‌شود'
+      { say '  ✗ pprof=true - opens 0.0.0.0:6060 with no auth'
         warn=$((warn + 1)); }
 
     [ "$(val log_level)" = 'info' ] &&
-      say '  ⚠ log_level=info مقدار توکن را در خطای mismatch لاگ می‌کند'
+      say '  ⚠ log_level=info logs the token value on mismatch errors'
 
     # سمت کلاینت: remote_addr پشت پروکسی کلادفلر با ترنسپورت غیر ws*
     # کار نمی‌کند — CF فقط HTTP را عبور می‌دهد و کانال کنترل بی‌پایان
@@ -687,12 +687,12 @@ cmd_check() {
               cdn=''
               for ip in $ips; do is_cloudflare_ip "$ip" && cdn=1; done
               if [ -n "$cdn" ]; then
-                say "  ✗ remote_addr ($host) به CDN کلادفلر حل می‌شود — پروکسی CF"
-                say '    ترافیک غیر HTTP را عبور نمی‌دهد و تونل برقرار نمی‌شود.'
-                say '    IP مستقیم سرور یا رکورد DNS-only (ابر خاکستری) بگذارید.'
+                say "  ✗ remote_addr ($host) resolves to a Cloudflare IP - the CF proxy does"
+                say '    not pass non-HTTP traffic and the tunnel will not come up.'
+                say "    Use the server's direct IP or a DNS-only (grey cloud) record."
                 warn=$((warn + 1))
               else
-                say "  ✓ remote_addr حل شد: $(printf '%s\n' "$ips" | paste -sd' ' -)"
+                say "  ✓ remote_addr resolved: $(printf '%s\n' "$ips" | paste -sd' ' -)"
               fi
             fi
           fi
@@ -704,19 +704,19 @@ cmd_check() {
   if have_systemd; then
     unit=$(side_unit "$side")
     if [ -f "$UNIT_DIR/$unit" ]; then
-      say "  ✓ سرویس: $unit"
+      say "  ✓ service: $unit"
     else
-      say "  ⚠ یونیت systemd نصب نیست: $unit"
+      say "  ⚠ systemd unit not installed: $unit"
     fi
   fi
 
   say ''
   if [ "$warn" = 0 ]; then
-    say 'مشکل جدی پیدا نشد.'
+    say 'No serious problems found.'
   else
-    say "$warn مورد نیاز به رسیدگی دارد."
+    say "$warn issue(s) need attention."
   fi
-  say "پشتیبانی: $SUPPORT"
+  say "Support: $SUPPORT"
   [ "$warn" = 0 ]
 }
 
@@ -729,9 +729,9 @@ cmd_peers() {
   side=${1:-}
   [ -n "$side" ] || side=$(guess_side peers)
   case "$side" in server|s) side=server ;; client|c) side=client ;;
-    *) die "سمت نامعتبر: «$side»" 2 ;; esac
+    *) die "invalid side: '$side' (server or client)" 2 ;; esac
   conf=$(side_conf "$side")
-  [ -f "$conf" ] || die "کانفیگ نیست: $conf"
+  [ -f "$conf" ] || die "config not found: $conf"
 
   # یک مهر زمانی برای generated_at و state — دو بار date زدن یعنی دو پاسِ متفاوت
   # از «الان» در یک خروجی.
@@ -749,10 +749,10 @@ cmd_peers() {
 
   if [ "$side" = server ]; then
     bind=$(conf_val "$conf" bind_addr)
-    [ -n "$bind" ] || die 'bind_addr در server.toml نیست — پورت تونل معلوم نیست.'
+    [ -n "$bind" ] || die 'bind_addr missing from server.toml - the tunnel port is unknown.'
     tport=${bind##*:}
     case "$tport" in
-      ''|*[!0-9]*) die "پورت تونل در bind_addr عدد نیست: «$bind»" ;;
+      ''|*[!0-9]*) die "tunnel port in bind_addr is not a number: '$bind'" ;;
     esac
 
     # شمارش اتصال به‌ازای IP همتا. ستون State در نسخه‌های مختلف ss گاهی هست و
@@ -972,7 +972,7 @@ cmd_panel() {
   # این دستور فقط توضیح می‌دهد. اگر کسی گزینه‌ای بدهد، انتظارش «انجام دادن»
   # است — پس بی‌صدا نخوریمش، وگرنه فکر می‌کند رمز عوض شد و نشده.
   if [ $# -gt 0 ]; then
-    say '«panel» فقط توضیح می‌دهد و گزینه نمی‌گیرد. دستوری که کار می‌کند panel-up است:'
+    say "'panel' only explains and takes no options. The command that does the work is panel-up:"
     say ''
     # همان خط تایپ‌شده را پیشنهاد بده، با یک اصلاح: «--new-password رمز»
     # رایج‌ترین اشتباه است — آن سوئیچ مقدار نمی‌گیرد و رمز تصادفی می‌سازد.
@@ -990,43 +990,43 @@ cmd_panel() {
     done
     say "  sudo farshub panel-up$hint"
     say ''
-    say 'فهرست گزینه‌ها:  farshub panel'
+    say 'Full option list:  farshub panel'
     exit 2
   fi
-  say "$BRAND — پنل وب"
+  say "$BRAND — web panel"
   say ''
-  say 'پنل FarsHub ایستا، دوزبانه و بدون CDN است. «farshub install» آن را در'
-  say "$STATE_DIR/web می‌گذارد، همراه یک panel.json که نقش این ماشین،"
-  say 'نسخه و مشخصات میزبان را نگه می‌دارد — موتور اجرا هیچ‌کدام را گزارش'
-  say 'نمی‌کند و بدون این فایل پنل «سمت اجرا نامعلوم» نشان می‌دهد.'
+  say 'The FarsHub panel is static, bilingual and CDN-free. farshub install puts'
+  say "it in $STATE_DIR/web together with a panel.json that holds this machine's"
+  say 'role, version and host specs — the engine reports none of these, and'
+  say "without that file the panel shows 'unknown side'."
   say ''
-  say 'بالا آوردن پنل (رمز خودکار ساخته و چاپ می‌شود):'
+  say 'Bringing the panel up (a password is generated and printed automatically):'
   say ''
   say '  sudo farshub panel-up --sniffer'
   say ''
-  say 'با کاربر و رمز دلخواه:'
+  say 'With a custom user and password:'
   say ''
   say '  sudo farshub panel-up --user admin --password MyPass123 --sniffer'
   say ''
-  say 'panel-up اگر nginx نباشد نصبش می‌کند، web_port موتور را روشن و همان را'
-  say 'از بیرون می‌بندد، و پنل را با auth_basic سرو می‌کند.'
+  say 'If nginx is missing, panel-up installs it, turns the engine web_port on'
+  say 'and closes that same port from outside, and serves the panel with auth_basic.'
   say ''
-  say '  --port N        پورت پنل (پیش‌فرض 8088)'
-  say '  --user NAME     نام کاربری (پیش‌فرض farshub)'
-  say '  --password PASS رمز دلخواه (نگذارید: رمز تصادفی ساخته می‌شود)'
-  say '  --new-password  رمز تصادفی تازه به‌جای حفظ رمز قبلی'
-  say '  --sniffer       تا جدول پورت‌ها پر شود'
+  say '  --port N        panel port (default 8088)'
+  say '  --user NAME     login username (default farshub)'
+  say '  --password PASS custom password (leave it out: a random one is generated)'
+  say '  --new-password  a fresh random password instead of keeping the old one'
+  say '  --sniffer       turn it on so the ports table fills up'
   say ''
-  say 'عوض کردن رمزِ بعدی:  sudo farshub panel-up --password رمزتازه'
-  say 'برگرداندن همه‌ی تغییرها:  sudo farshub panel-down'
+  say 'Change the password later:  sudo farshub panel-up --password NewPass'
+  say 'Revert every change:  sudo farshub panel-down'
   say ''
-  say 'اگر نقش را دستی عوض کردید:'
+  say 'If you changed the role by hand:'
   say "  farshub panel-meta server > $STATE_DIR/web/panel.json"
   say ''
-  say 'پنل داخلی خود موتور اجرا چیز دیگری است، برندینگ آپ‌استریم را دارد و'
-  say 'احراز هویت ندارد — panel-up عمداً آن را از بیرون بسته نگه می‌دارد.'
+  say "The engine's own built-in panel is something else: it has upstream branding"
+  say 'and no authentication - panel-up deliberately keeps it closed from outside.'
   say ''
-  say 'جزئیات: docs/PANEL.md'
+  say 'Details: docs/PANEL.md'
 }
 
 # ------------------------------------------------------ بالا آوردن پنل --
@@ -1069,10 +1069,10 @@ pkg_install_nginx() {
 NGINX_FRESH=0
 ensure_nginx() {
   command -v nginx >/dev/null 2>&1 && return 0
-  say '  nginx نصب نیست — نصبش می‌کنم (چند لحظه)…'
+  say '  nginx not installed - installing it (a moment)…'
   pkg_install_nginx >/dev/null 2>&1 ||
-    die 'nginx نصب نشد. دستی نصبش کنید و panel-up را دوباره بزنید.'
-  command -v nginx >/dev/null 2>&1 || die 'نصب nginx ناموفق بود.'
+    die 'nginx was not installed. Install it manually and run panel-up again.'
+  command -v nginx >/dev/null 2>&1 || die 'nginx installation failed.'
   NGINX_FRESH=1
   # سایت پیش‌فرض دبیان روی پورت ۸۰ گوش می‌دهد. اگر چیز دیگری آن پورت را
   # گرفته باشد nginx اصلاً بالا نمی‌آید و پنل هم بالا نمی‌آید — و صفحه‌ی
@@ -1081,7 +1081,7 @@ ensure_nginx() {
   # چون این شاخه فقط وقتی اجرا می‌شود که nginx را همین حالا نصب کرده باشیم.
   if [ -L /etc/nginx/sites-enabled/default ]; then
     rm -f /etc/nginx/sites-enabled/default
-    say '  nginx   → سایت پیش‌فرض (پورت ۸۰) غیرفعال شد؛ فایلش در sites-available ماند'
+    say '  nginx    → default site (port 80) disabled; its file stayed in sites-available'
   fi
   return 0
 }
@@ -1206,33 +1206,33 @@ key_spec() {                            # $1=سمت  $2=کلید
 # مقدار را می‌سنجد و شکل TOML‌اش را چاپ می‌کند (رشته‌ها با گیومه). خطا ⇒ die.
 toml_value() {                          # $1=سمت  $2=کلید  $3=مقدار
   spec=$(key_spec "$1" "$2")
-  [ -n "$spec" ] || die "کلید ناشناس یا مربوط به سمت دیگر: «$2»"
+  [ -n "$spec" ] || die "unknown key or wrong side: '$2'"
   # shellcheck disable=SC2086
   set -- "$1" "$2" "$3" $spec
   case $4 in
-    enum)  valid_enum "$3" "$TRANSPORTS" || die "transport نامعتبر: «$3» (یکی از: $TRANSPORTS)"
+    enum)  valid_enum "$3" "$TRANSPORTS" || die "invalid transport: '$3' (one of: $TRANSPORTS)"
            printf '"%s"\n' "$3" ;;
-    level) valid_enum "$3" "$LOG_LEVELS" || die "log_level نامعتبر: «$3» (یکی از: $LOG_LEVELS)"
+    level) valid_enum "$3" "$LOG_LEVELS" || die "invalid log_level: '$3' (one of: $LOG_LEVELS)"
            printf '"%s"\n' "$3" ;;
-    token) valid_token "$3" || die 'توکن باید ۳۲ تا ۲۵۶ نویسه از [A-Za-z0-9._~-] باشد.'
+    token) valid_token "$3" || die 'token must be 32-256 characters from [A-Za-z0-9._~-].'
            printf '"%s"\n' "$3" ;;
-    bool)  valid_bool "$3" || die "«$2» باید true یا false باشد، نه «$3»"
+    bool)  valid_bool "$3" || die "'$2' must be true or false, not '$3'"
            printf '%s\n' "$3" ;;
-    int)   valid_int "$3" "$5" "$6" || die "«$2» باید عددی بین $5 و $6 باشد، نه «$3»"
+    int)   valid_int "$3" "$5" "$6" || die "'$2' must be an integer between $5 and $6, not '$3'"
            printf '%s\n' "$3" ;;
-    path)  valid_path "$3" || die "«$2» باید مسیر مطلق بدون فاصله باشد: «$3»"
+    path)  valid_path "$3" || die "'$2' must be an absolute path without spaces: '$3'"
            printf '"%s"\n' "$3" ;;
-    ip)    [ -z "$3" ] || valid_ipv4 "$3" || die "«$2» باید IPv4 باشد: «$3»"
+    ip)    [ -z "$3" ] || valid_ipv4 "$3" || die "'$2' must be an IPv4 address: '$3'"
            printf '"%s"\n' "$3" ;;
-    addr)  valid_addr "$3" || die "«$2» باید host:port با پورت ۱ تا ۶۵۵۳۵ باشد: «$3»"
+    addr)  valid_addr "$3" || die "'$2' must be host:port with port 1-65535: '$3'"
            printf '"%s"\n' "$3" ;;
     remote)
-           valid_addr "$3" || die "«$2» باید host:port با پورت ۱ تا ۶۵۵۳۵ باشد: «$3»"
+           valid_addr "$3" || die "'$2' must be host:port with port 1-65535: '$3'"
            case $3 in
-             :*|SERVER_IP:*) die 'remote_addr باید نشانی واقعی سرور باشد، نه جای‌نگهدار.' ;;
+             :*|SERVER_IP:*) die "remote_addr must be the server's real address, not a placeholder." ;;
            esac
            printf '"%s"\n' "$3" ;;
-    *)     die "نوع ناشناخته برای «$2»" ;;
+    *)     die "unknown type for '$2'" ;;
   esac
 }
 
@@ -1275,11 +1275,11 @@ ${keep:+$keep
 # filesystem اتمیک است.
 cmd_apply_config() {
   side=${1:-}
-  [ -n "$side" ] || die 'سمت را بگویید: farshub apply-config server|client' 2
+  [ -n "$side" ] || die 'missing side: farshub apply-config server|client' 2
   case "$side" in server|s) side=server ;; client|c) side=client ;;
-    *) die "سمت نامعتبر: «$side»" 2 ;; esac
+    *) die "invalid side: '$side' (server or client)" 2 ;; esac
   conf=$(side_conf "$side")
-  [ -f "$conf" ] || die "کانفیگ نیست: $conf — اول «farshub install $side»."
+  [ -f "$conf" ] || die "config not found: $conf - run 'farshub install $side' first."
   need_write "$CONF_DIR"
 
   raw=$(cat)
@@ -1294,16 +1294,16 @@ cmd_apply_config() {
         "$c" -c 'import json' >/dev/null 2>&1 && { py=$c; break; }
       done
       [ -n "$py" ] ||
-        die 'JSON خواندن python3 می‌خواهد. شکل بدون وابستگی: خطوط «کلید=مقدار».'
+        die "reading JSON needs python3. The dependency-free form is 'key=value' lines."
       # stderr هم گرفته می‌شود، وگرنه پیام خطای python به die نمی‌رسد.
       lines=$(printf '%s' "$raw" | "$py" -c '
 import json, sys
 try:
     d = json.load(sys.stdin)
 except ValueError as e:
-    sys.exit("JSON نامعتبر: %s" % e)
+    sys.exit("invalid JSON: %s" % e)
 if not isinstance(d, dict):
-    sys.exit("JSON باید یک شیء باشد.")
+    sys.exit("JSON must be an object.")
 out = []
 for k, v in d.items():
     if isinstance(v, list):
@@ -1333,18 +1333,18 @@ sys.stdout.write("\n".join(out))
     case $line in
       *'+='*)
         k=${line%%+=*}; v=${line#*+=}
-        [ "$k" = ports ] || die "«+=» فقط برای ports است، نه «$k»"
-        [ -n "$(key_spec "$side" ports)" ] || die 'سمت کلاینت کلید ports ندارد.'
-        valid_port_row "$v" || die "ردیف ports نامعتبر: «$v»"
+        [ "$k" = ports ] || die "'+=' is only for ports, not '$k'"
+        [ -n "$(key_spec "$side" ports)" ] || die 'the client side has no ports key.'
+        valid_port_row "$v" || die "invalid ports row: '$v'"
         rows="$rows$v
 "
         has_ports=1
         ;;
       *'='*)
         k=${line%%=*}; v=${line#*=}
-        case $k in ''|*[!a-z_]*) die "نام کلید نامعتبر: «$k»" ;; esac
+        case $k in ''|*[!a-z_]*) die "invalid key name: '$k'" ;; esac
         if [ "$k" = ports ]; then
-          [ -n "$(key_spec "$side" ports)" ] || die 'سمت کلاینت کلید ports ندارد.'
+          [ -n "$(key_spec "$side" ports)" ] || die 'the client side has no ports key.'
           has_ports=1                   # «ports=» یعنی خالی کن
         else
           tv=$(toml_value "$side" "$k" "$v")
@@ -1352,12 +1352,12 @@ sys.stdout.write("\n".join(out))
 "
         fi
         ;;
-      *) die "خط نامعتبر (شکل «کلید=مقدار»): «$line»" ;;
+      *) die "invalid line (expected 'key=value'): '$line'" ;;
     esac
   done <"$conf.in.$$"
   rm -f "$conf.in.$$"
 
-  [ -n "$pending" ] || [ "$has_ports" = 1 ] || die 'چیزی برای نوشتن نبود.'
+  [ -n "$pending" ] || [ "$has_ports" = 1 ] || die 'nothing to write.'
 
   # ------- پاس دوم: نوشتن روی نسخه‌ی موقت
   tmp="$conf.new.$$"
@@ -1416,7 +1416,7 @@ htpasswd_line() {                       # $1=کاربر  $2=رمز
   elif command -v htpasswd >/dev/null 2>&1; then
     htpasswd -nbB "$1" "$2"
   else
-    die 'نه openssl هست و نه htpasswd — رمز پنل ساخته نشد.'
+    die 'neither openssl nor htpasswd is available - the panel password could not be created.'
   fi
 }
 
@@ -1426,7 +1426,7 @@ gen_pass() {
   elif [ -r /dev/urandom ] && command -v od >/dev/null 2>&1; then
     od -An -tx1 -N9 /dev/urandom | tr -d ' \n'
   else
-    die 'راهی برای ساخت رمز تصادفی نبود — با --user و رمز دستی پیش بروید.'
+    die 'no way to generate a random password - proceed with --user and a manual password.'
   fi
 }
 
@@ -1442,11 +1442,12 @@ fw_pair() {                             # $1=ابزار  $2=پورت  $3=loopbac
 
 write_fw_dropin() {                     # $1=web_port
   cat <<EOF
-# ساخته‌ی «farshub panel-up» — با «farshub panel-down» حذف می‌شود.
-# پنل داخلی موتور اجرا روی همه‌ی اینترفیس‌ها گوش می‌دهد و احراز هویت ندارد؛
-# آدرس bind قابل تنظیم نیست، پس تنها راه بستنش فایروال است. قاعده در هر boot
-# دوباره اعمال می‌شود. اگر iptables خراب باشد سرویس بالا نمی‌آید — عمدی است:
-# تونلِ خوابیده بهتر از پنلِ بی‌رمزِ باز روی اینترنت است.
+# Created by 'farshub panel-up' - removed by 'farshub panel-down'.
+# The engine's built-in panel listens on every interface with no authentication;
+# its bind address cannot be configured, so a firewall is the only way to close
+# it. The rule is re-applied at every boot. If iptables is broken the service
+# will not start - on purpose: a sleeping tunnel is better than an open,
+# password-less panel on the internet.
 [Service]
 EOF
   fw_pair "$IPT" "$1" '127.0.0.1/32'
@@ -1456,8 +1457,8 @@ EOF
 
 write_site() {                          # $1=پورت پنل  $2=web_port
   cat <<EOF
-# ساخته‌ی «farshub panel-up» — با «farshub panel-down» حذف می‌شود.
-# دست‌نویسی نکنید؛ اجرای بعدی panel-up بازنویسی‌اش می‌کند.
+# Created by 'farshub panel-up' - removed by 'farshub panel-down'.
+# Do not edit by hand; the next panel-up run will overwrite it.
 server {
     listen $1;
 EOF
@@ -1468,8 +1469,8 @@ EOF
     root $STATE_DIR/web;
     index index.html;
 
-    # موتور اجرا هیچ احراز هویتی ندارد، پس لایه‌ی رمز اینجاست.
-    # از خود ماشین (تونل SSH) بدون رمز باز می‌شود.
+    # The engine has no authentication, so the password layer lives here.
+    # From the machine itself (SSH tunnel) it opens without a password.
     auth_basic           "$BRAND";
     auth_basic_user_file $HTPASSWD_FILE;
     satisfy any;
@@ -1477,9 +1478,10 @@ EOF
     allow ::1;
     deny  all;
 
-    # فقط همین دو مسیر پروکسی می‌شوند؛ بقیه‌ی موتور — از جمله /debug/pprof —
-    # عمداً بیرون می‌ماند. پنل هر ۲ ثانیه poll می‌کند، پس لاگ دسترسی خاموش است
-    # وگرنه روزی ۸۰ هزار خط روی دیسک می‌نشیند.
+    # Only these two paths are proxied; the rest of the engine - including
+    # /debug/pprof - deliberately stays out. The panel polls every 2 seconds,
+    # so access logging is off; otherwise some 80,000 lines a day would hit
+    # the disk.
     location = /stats {
         access_log off;
         proxy_pass http://127.0.0.1:$2/stats;
@@ -1506,9 +1508,9 @@ EOF
 
 peers_service_unit() {                    # $1=سمت → متن یونیت سرویس روی stdout
   cat <<EOF
-# ساخته‌ی «farshub panel-up» — با «farshub panel-down» حذف می‌شود.
+# Created by 'farshub panel-up' - removed by 'farshub panel-down'.
 [Unit]
-Description=FarsHub Tunnel — peers JSON (سمت $1)
+Description=FarsHub Tunnel - peers JSON (side $1)
 Documentation=https://github.com/saeedgh837/FarsHub-Tunnel
 
 [Service]
@@ -1531,9 +1533,9 @@ EOF
 
 peers_timer_unit() {
   cat <<EOF
-# ساخته‌ی «farshub panel-up» — با «farshub panel-down» حذف می‌شود.
+# Created by 'farshub panel-up' - removed by 'farshub panel-down'.
 [Unit]
-Description=FarsHub Tunnel — تایمر peers
+Description=FarsHub Tunnel - peers timer
 
 [Timer]
 OnBootSec=15
@@ -1547,28 +1549,28 @@ EOF
 cmd_peers_install() {                     # $1=سمت
   side=${1:-}
   case "$side" in server|s) side=server ;; client|c) side=client ;;
-    *) die "سمت نامعتبر: «$side» (server یا client)" 2 ;; esac
+    *) die "invalid side: '$side' (server or client)" 2 ;; esac
   conf=$(side_conf "$side")
-  [ -f "$conf" ] || die "کانفیگ نیست: $conf"
+  [ -f "$conf" ] || die "config not found: $conf"
   need_write "$UNIT_DIR" "$STATE_DIR"
 
-  t=$(mktemp) || die 'ساخت فایل موقت ناموفق بود.'
+  t=$(mktemp) || die 'could not create a temporary file.'
   peers_service_unit "$side" >"$t"
   install -m644 "$t" "$UNIT_DIR/$UNIT_PREFIX-peers.service"
   peers_timer_unit >"$t"
   install -m644 "$t" "$UNIT_DIR/$UNIT_PREFIX-peers.timer"
   rm -f "$t"
-  say "  یونیت   → $UNIT_DIR/$UNIT_PREFIX-peers.service"
-  say "  یونیت   → $UNIT_DIR/$UNIT_PREFIX-peers.timer"
+  say "  unit     → $UNIT_DIR/$UNIT_PREFIX-peers.service"
+  say "  unit     → $UNIT_DIR/$UNIT_PREFIX-peers.timer"
   if have_systemd; then
     systemctl daemon-reload >/dev/null 2>&1 || true
     if systemctl enable --now "$UNIT_PREFIX-peers.timer" >/dev/null 2>&1; then
-      say '  تایمر   → فعال شد؛ هر ۳۰ ثانیه peers.json از نو ساخته می‌شود'
+      say '  timer    → enabled; peers.json is rebuilt every 30 seconds'
     else
-      say '  تایمر   → فعال نشد (systemd بالا نیست؟) — یونیت‌ها نوشته شدند'
+      say '  timer    → not enabled (is systemd up?) - the units were written'
     fi
   else
-    say '  تایمر   → systemd در دسترس نیست؛ فقط یونیت‌ها نوشته شدند'
+    say '  timer    → systemd not available; only the units were written'
   fi
 
   # پرایم: تا نخستین تیکِ تایمر (تا ۳۰ ثانیه) کارت همتاها خالی نماند. شکستش
@@ -1578,9 +1580,9 @@ cmd_peers_install() {                     # $1=سمت
   if [ -n "$out" ]; then
     printf '%s\n' "$out" >"$STATE_DIR/web/peers.json.tmp"
     mv "$STATE_DIR/web/peers.json.tmp" "$STATE_DIR/web/peers.json"
-    say "  peers   → $STATE_DIR/web/peers.json ساخته شد"
+    say "  peers    → $STATE_DIR/web/peers.json created"
   else
-    say '  peers   → پرایم نشد؛ نخستین اجرای تایمر می‌سازدش'
+    say '  peers    → not primed; the first timer run will create it'
   fi
 }
 
@@ -1593,59 +1595,59 @@ cmd_peers_uninstall() {
   if have_systemd; then
     systemctl daemon-reload 2>/dev/null || true
   fi
-  say '  تایمر   ← peers متوقف و یونیت‌هایش حذف شدند'
+  say '  timer    ← peers stopped and its units removed'
   # peers.json می‌رود تا پنلِ خاموش داده‌ی کهنه نشان ندهد؛ peers-state.json
   # می‌ماند — تاریخچه‌ی داخلی مشاهده است، نه فایل پنل.
   rm -f "$STATE_DIR/web/peers.json"
-  say '  پنل     ← peers.json حذف شد (تا داده‌ی کهنه نشان ندهد)'
+  say '  panel    ← peers.json removed (so no stale data is shown)'
 }
 
 cmd_panel_up() {
   side=''; pport=8088; puser='farshub'; wport=''; sniff=0; newpw=0; ppass=''
   while [ $# -gt 0 ]; do
     case $1 in
-      --port)         [ $# -ge 2 ] || die '--port مقدار می‌خواهد.'; pport=$2; shift ;;
+      --port)         [ $# -ge 2 ] || die '--port needs a value.'; pport=$2; shift ;;
       --port=*)       pport=${1#--port=} ;;
-      --user)         [ $# -ge 2 ] || die '--user مقدار می‌خواهد.'; puser=$2; shift ;;
+      --user)         [ $# -ge 2 ] || die '--user needs a value.'; puser=$2; shift ;;
       --user=*)       puser=${1#--user=} ;;
-      --web-port)     [ $# -ge 2 ] || die '--web-port مقدار می‌خواهد.'; wport=$2; shift ;;
+      --web-port)     [ $# -ge 2 ] || die '--web-port needs a value.'; wport=$2; shift ;;
       --web-port=*)   wport=${1#--web-port=} ;;
       --sniffer)      sniff=1 ;;
-      --password)     [ $# -ge 2 ] || die '--password مقدار می‌خواهد.'; ppass=$2; shift ;;
+      --password)     [ $# -ge 2 ] || die '--password needs a value.'; ppass=$2; shift ;;
       --password=*)   ppass=${1#--password=} ;;
       --new-password) newpw=1 ;;
       server|s)       side=server ;;
       client|c)       side=client ;;
-      *)              die "گزینه‌ی ناشناس: $1" ;;
+      *)              die "unknown option: $1" ;;
     esac
     shift
   done
   # رمز داخل خط htpasswd می‌نشیند؛ «:» جداکننده‌ی همان خط است. پیش از need_root
   # سنجیده می‌شود تا خطای تایپی با sudo هم دوباره تکرار نشود.
   case $ppass in
-    *:*)   die 'رمز نمی‌تواند «:» داشته باشد (جداکننده‌ی خطِ htpasswd است).' ;;
-    *"'"*) die "رمز نمی‌تواند «'» داشته باشد." ;;
+    *:*)   die "the password cannot contain ':' (the htpasswd line separator)." ;;
+    *"'"*) die "the password cannot contain the ' character." ;;
   esac
   if [ -n "$ppass" ]; then
-    [ ${#ppass} -ge 6 ] || die 'رمز کوتاه است — دست‌کم ۶ نویسه.'
+    [ ${#ppass} -ge 6 ] || die 'the password is too short - at least 6 characters.'
     newpw=1                             # --password یعنی همین رمز، پس حفظ رمز قبلی معنا ندارد
   fi
   [ -n "$side" ] || side=$(guess_side panel-up)
 
   need_root
   have_systemd ||
-    die 'panel-up به systemd نیاز دارد (قاعده‌ی فایروال روی سرویس سوار می‌شود).'
+    die 'panel-up needs systemd (the firewall rule rides on the service).'
   conf=$(side_conf "$side")
-  [ -f "$conf" ] || die "کانفیگ نیست: $conf — اول «farshub install $side»."
+  [ -f "$conf" ] || die "config not found: $conf - run 'farshub install $side' first."
   [ -d "$STATE_DIR/web" ] ||
-    die "پنل در $STATE_DIR/web نیست — «farshub install $side» را دوباره بزنید."
-  case $pport in ''|*[!0-9]*) die "پورت پنل نامعتبر: «$pport»" ;; esac
-  case $puser in ''|*[!A-Za-z0-9._-]*) die "نام کاربری نامعتبر: «$puser»" ;; esac
+    die "the panel is not in $STATE_DIR/web - run 'farshub install $side' again."
+  case $pport in ''|*[!0-9]*) die "invalid panel port: '$pport'" ;; esac
+  case $puser in ''|*[!A-Za-z0-9._-]*) die "invalid username: '$puser'" ;; esac
 
   # موتور اجرا آدرس bind پنل داخلی‌اش را قابل تنظیم نکرده و روی همه‌ی
   # اینترفیس‌ها گوش می‌دهد. بدون iptables راهی برای بستنش نیست.
   IPT=$(command -v iptables 2>/dev/null) || IPT=''
-  [ -n "$IPT" ] || die 'iptables پیدا نشد؛ بدون آن پنلِ بی‌رمزِ موتور از بیرون باز می‌ماند. نصبش کنید و دوباره بزنید.'
+  [ -n "$IPT" ] || die "iptables not found; without it the engine's password-less panel stays open to the outside. Install it and run again."
   IPT6=''
   if have_ipv6; then IPT6=$(command -v ip6tables 2>/dev/null) || IPT6=''; fi
 
@@ -1654,8 +1656,8 @@ cmd_panel_up() {
   if [ -z "$wport" ]; then
     if [ -n "$cur" ] && [ "$cur" != '0' ]; then wport=$cur; else wport=2060; fi
   fi
-  case $wport in ''|*[!0-9]*) die "web_port نامعتبر: «$wport»" ;; esac
-  [ "$wport" = "$pport" ] && die "پورت پنل و web_port نمی‌توانند یکی باشند ($pport)."
+  case $wport in ''|*[!0-9]*) die "invalid web_port: '$wport'" ;; esac
+  [ "$wport" = "$pport" ] && die "the panel port and web_port cannot be the same ($pport)."
 
   # هنوز ممکن است nginx نصب نباشد؛ آن‌وقت هیچ‌کدام از دو ساختار نیست و
   # تشخیص واقعی بعد از ensure_nginx تکرار می‌شود.
@@ -1665,28 +1667,28 @@ cmd_panel_up() {
     site=''; link=''
   fi
 
-  say "$BRAND — بالا آوردن پنل سمت $side"
+  say "$BRAND — bringing up the panel on the $side side"
   say ''
 
   ensure_nginx
   # مسیر nginx تازه نصب‌شده تا حالا وجود نداشت، پس بعد از نصب دوباره بسنج.
   if [ -z "$site" ]; then
     [ -d /etc/nginx ] ||
-      die 'ساختار /etc/nginx شناسایی نشد (نه sites-available و نه conf.d).'
+      die '/etc/nginx layout not recognized (neither sites-available nor conf.d).'
     resolve_site_paths; site=$SITE_FILE; link=$SITE_LINK
     [ -d "$(dirname -- "$site")" ] ||
-      die 'ساختار /etc/nginx شناسایی نشد (نه sites-available و نه conf.d).'
+      die '/etc/nginx layout not recognized (neither sites-available nor conf.d).'
   fi
   if [ ! -f "$site" ] && port_busy "$pport"; then
-    die "پورت $pport اشغال است — با --port پورت دیگری بدهید."
+    die "port $pport is busy - pass another one with --port."
   fi
 
   # ۱) موتور: پنل داخلی روشن شود تا چیزی برای پروکسی‌کردن باشد.
   set_conf_val "$conf" web_port "$wport"
-  say "  موتور   → web_port=$wport"
+  say "  engine   → web_port=$wport"
   if [ "$sniff" = 1 ]; then
     set_conf_val "$conf" sniffer true
-    say '  موتور   → sniffer=true (جدول پورت‌ها پر می‌شود؛ کمی CPU می‌گیرد)'
+    say '  engine   → sniffer=true (fills the ports table; costs some CPU)'
   fi
 
   # ۲) فایروال، پیش از restart تا پورت هرگز بی‌محافظ باز نشود.
@@ -1697,9 +1699,9 @@ cmd_panel_up() {
   systemctl daemon-reload
   systemctl restart "$unit"
   if [ -n "$IPT6" ]; then
-    say "  فایروال → پورت $wport فقط از خود ماشین (IPv4+IPv6)"
+    say "  firewall → port $wport reachable from this machine only (IPv4+IPv6)"
   else
-    say "  فایروال → پورت $wport فقط از خود ماشین (IPv4)"
+    say "  firewall → port $wport reachable from this machine only (IPv4)"
   fi
 
   # ۳) رمز. اگر کاربر از قبل هست، رمزش حفظ می‌شود — چرخاندن بی‌خبرِ رمز
@@ -1707,7 +1709,7 @@ cmd_panel_up() {
   pw=''
   if [ "$newpw" = 0 ] && [ -f "$HTPASSWD_FILE" ] &&
      grep -q "^$puser:" "$HTPASSWD_FILE"; then
-    say "  رمز     → کاربر «$puser» از قبل بود، رمز قبلی حفظ شد"
+    say "  password → user '$puser' already existed, previous password kept"
   else
     if [ -n "$ppass" ]; then pw=$ppass; else pw=$(gen_pass); fi
     line=$(htpasswd_line "$puser" "$pw")
@@ -1721,12 +1723,12 @@ cmd_panel_up() {
     chmod 640 "$HTPASSWD_FILE"
     chgrp www-data "$HTPASSWD_FILE" 2>/dev/null ||
       chgrp nginx "$HTPASSWD_FILE" 2>/dev/null || chmod 644 "$HTPASSWD_FILE"
-    say "  رمز     → $HTPASSWD_FILE"
+    say "  password → $HTPASSWD_FILE"
     # عوض کردن --user کاربر قبلی را حذف نمی‌کند و او همچنان می‌تواند وارد شود.
     # کسی که فکر می‌کند «کاربر را عوض کردم» باید این را بداند.
     others=$(cut -d: -f1 "$HTPASSWD_FILE" | grep -v "^$puser\$" | tr '\n' ' ')
     [ -n "$others" ] &&
-      say "  رمز     → کاربر(های) قبلی هم هنوز دسترسی دارند: $others"
+      say "  password → previous user(s) still have access too: $others"
   fi
 
   # ۴) nginx. اگر کانفیگ پذیرفته نشد، برمی‌گردانیم — نه اینکه nginx زنده را بشکنیم.
@@ -1738,20 +1740,20 @@ cmd_panel_up() {
     nginx -t 2>&1 | sed 's/^/    /'
     if [ "$had_site" = 1 ]; then mv "$site.bak" "$site"; else
       rm -f "$site"; [ -n "$link" ] && rm -f "$link"; fi
-    die 'nginx کانفیگ را نپذیرفت — به حالت قبل برگشت.'
+    die 'nginx rejected the config - rolled back to the previous state.'
   fi
   rm -f "$site.bak"
   systemctl enable nginx >/dev/null 2>&1 || true
   if ! systemctl reload nginx >/dev/null 2>&1; then
     if ! systemctl restart nginx >/dev/null 2>&1; then
       systemctl status nginx --no-pager 2>&1 | sed -n '1,12p' | sed 's/^/    /'
-      die 'nginx بالا نیامد — احتمالاً یکی از سایت‌هایش با سرویس دیگری روی همان پورت تعارض دارد.'
+      die 'nginx did not come up - probably one of its sites conflicts with another service on the same port.'
     fi
   fi
-  say "  nginx   → $site"
+  say "  nginx    → $site"
 
   if ufw_active; then
-    ufw allow "$pport/tcp" >/dev/null 2>&1 && say "  ufw     → پورت $pport باز شد"
+    ufw allow "$pport/tcp" >/dev/null 2>&1 && say "  ufw      → port $pport opened"
   fi
 
   # ۵) panel.json تا نقش «نامعلوم» نشود (web_port عوض شده، پس از نو ساخته شود).
@@ -1768,33 +1770,33 @@ cmd_panel_up() {
 
   ip=$(host_ip); [ -n "$ip" ] || ip='SERVER_IP'
   say ''
-  say 'پنل بالا آمد.'
+  say 'The panel is up.'
   say ''
-  say "  آدرس   : http://$ip:$pport/"
-  say "  کاربر  : $puser"
+  say "  address  : http://$ip:$pport/"
+  say "  user     : $puser"
   if [ -n "$pw" ]; then
-    say "  رمز    : $pw"
+    say "  password : $pw"
     say ''
-    say 'رمز جای دیگری ذخیره نشده (فقط hash روی دیسک است) — همین حالا نگهش دارید.'
-    say 'عوض کردنش:  farshub panel-up --password رمزتان'
+    say 'The password is not stored anywhere else (only a hash is on disk) - save it now.'
+    say 'To change it:  farshub panel-up --password YourPassword'
   fi
   say ''
-  say '⚠ ارتباط HTTP است، پس رمز رمزنگاری‌نشده رد می‌شود. برای دسترسی امن‌تر'
-  say '  یا TLS بگذارید یا از تونل SSH استفاده کنید:'
+  say '⚠ This is plain HTTP, so the password travels unencrypted. For safer'
+  say '  access, either set up TLS or use an SSH tunnel:'
   say "    ssh -N -L $pport:127.0.0.1:$pport root@$ip"
   if [ "$sniff" = 0 ] && [ "$(conf_val "$conf" sniffer)" != 'true' ]; then
     say ''
-    say '  جدول پورت‌ها خالی می‌ماند: sniffer خاموش است.'
-    say '  برای پر شدنش: farshub panel-up --sniffer'
+    say '  The ports table stays empty: sniffer is off.'
+    say '  To fill it: farshub panel-up --sniffer'
   fi
   if grep -q '^[[:space:]]*token[[:space:]]*=[[:space:]]*"CHANGE_ME"' "$conf"; then
     say ''
-    say '  ⚠ توکن هنوز CHANGE_ME است — تونل وصل نمی‌شود. «farshub token» و بعد edit.'
+    say "  ⚠ the token is still CHANGE_ME - the tunnel will not connect. Run 'farshub token', then edit."
   fi
   say ''
-  say "برگرداندن همه‌ی این تغییرات: farshub panel-down"
+  say 'To revert all of these changes: farshub panel-down'
   if [ "$NGINX_FRESH" = 1 ]; then
-    say 'خودِ nginx را panel-down حذف نمی‌کند؛ فقط سایت پنل را برمی‌دارد.'
+    say 'panel-down does not remove nginx itself; it only takes away the panel site.'
   fi
 }
 
@@ -1810,15 +1812,15 @@ cmd_panel_down() {
   [ -n "$p_side" ] || p_side=${1:-}
   [ -n "$p_side" ] || p_side=$(guess_side panel-down)
   case "$p_side" in server|s) p_side=server ;; client|c) p_side=client ;;
-    *) die "سمت نامعتبر: «$p_side»" ;; esac
+    *) die "invalid side: '$p_side' (server or client)" ;; esac
 
-  say "$BRAND — خواباندن پنل سمت $p_side"
+  say "$BRAND — taking the panel down on the $p_side side"
   say ''
 
   # nginx اول: تا پنل جواب می‌دهد، کسی وسط کار قطعی نبیند.
   for f in "$p_site" "/etc/nginx/sites-available/$SITE_NAME" \
            "/etc/nginx/conf.d/$SITE_NAME.conf"; do
-    [ -n "$f" ] && [ -f "$f" ] && { rm -f "$f"; say "  nginx   ← $f حذف شد"; }
+    [ -n "$f" ] && [ -f "$f" ] && { rm -f "$f"; say "  nginx    ← $f removed"; }
   done
   for f in "$p_link" "/etc/nginx/sites-enabled/$SITE_NAME"; do
     [ -n "$f" ] && [ -L "$f" ] && rm -f "$f"
@@ -1826,7 +1828,7 @@ cmd_panel_down() {
   if command -v nginx >/dev/null 2>&1 && nginx -t >/dev/null 2>&1; then
     systemctl reload nginx >/dev/null 2>&1 || true
   fi
-  if [ -f "$HTPASSWD_FILE" ]; then rm -f "$HTPASSWD_FILE"; say '  رمز     ← حذف شد'; fi
+  if [ -f "$HTPASSWD_FILE" ]; then rm -f "$HTPASSWD_FILE"; say '  password ← removed'; fi
 
   unit=$(side_unit "$p_side")
   dropin="$UNIT_DIR/$unit.d/10-firewall.conf"
@@ -1840,7 +1842,7 @@ cmd_panel_down() {
     rm -f "$dropin"
     rmdir "$UNIT_DIR/$unit.d" 2>/dev/null || true
     systemctl daemon-reload
-    say '  فایروال ← قاعده و drop-in حذف شد'
+    say '  firewall ← rule and drop-in removed'
   fi
 
   # تایمر peers هم مالِ همین پنل است: می‌ایستد و peers.json می‌رود. تاریخچه‌ی
@@ -1849,12 +1851,12 @@ cmd_panel_down() {
 
   if [ -f "$conf" ]; then
     set_conf_val "$conf" web_port 0
-    say '  موتور   ← web_port=0'
+    say '  engine   ← web_port=0'
   fi
 
   if have_systemd && [ "$was" = 'active' ]; then
     systemctl start "$unit"
-    say '  سرویس   ← دوباره بالا آمد'
+    say '  service  ← started again'
   fi
 
   if [ -n "$p_port" ] && ufw_active; then
@@ -1863,9 +1865,9 @@ cmd_panel_down() {
 
   rm -f "$PANEL_STATE"
   say ''
-  say 'پنل خوابید: تایمر peers متوقف و peers.json حذف شد.'
-  say 'فایل‌های پنل و panel.json سر جایشان ماندند؛'
-  say 'با «farshub panel-up» دوباره بالا می‌آید.'
+  say 'Panel is down: peers timer stopped and peers.json removed.'
+  say 'The panel files and panel.json stayed in place;'
+  say "'farshub panel-up' brings it back up."
 }
 
 # «این نصب کجاست؟» — همان سؤالی که در پشتیبانی مرتب پرسیده می‌شود، و تنها
@@ -1875,7 +1877,7 @@ cmd_paths() {
   [ -n "$side" ] || side=$(guess_side_soft)
   [ -n "$side" ] || side=server
   case "$side" in server|s) side=server ;; client|c) side=client ;;
-    *) die "سمت نامعتبر: «$side»" ;; esac
+    *) die "invalid side: '$side' (server or client)" ;; esac
   resolve_site_paths
   unit=$(side_unit "$side")
   printf 'side=%s\n'        "$side"
@@ -1905,7 +1907,7 @@ cmd_panel_meta() {
   side=${1:-}
   [ -n "$side" ] || side=$(guess_side panel-meta)
   case "$side" in server|s) side=server ;; client|c) side=client ;;
-    *) die "سمت نامعتبر: «$side»" ;; esac
+    *) die "invalid side: '$side' (server or client)" ;; esac
   panel_json "$side"
 }
 

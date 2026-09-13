@@ -88,7 +88,7 @@ assert_file 'نصب: یونیت سرویس نوشته شد' "$s/units/farshub-te
 assert_file 'نصب: یونیت تایمر نوشته شد' "$s/units/farshub-test-peers.timer"
 svc=$(cat "$s/units/farshub-test-peers.service")
 assert_contains 'یونیت: Type=oneshot' "$svc" 'Type=oneshot'
-assert_contains 'یونیت: سمت در Description' "$svc" 'peers JSON (سمت server)'
+assert_contains 'یونیت: سمت در Description' "$svc" 'peers JSON (side server)'
 assert_contains 'یونیت: مسیر کانفیگ در Environment' "$svc" \
   "Environment=FARSHUB_CONF_DIR=$s/conf"
 assert_contains 'یونیت: پیشوند در Environment' "$svc" \
@@ -104,7 +104,7 @@ assert_contains 'تایمر: WantedBy' "$tmr" 'WantedBy=timers.target'
 assert_contains 'systemctl: daemon-reload' "$(cat "$SYSTEMD_LOG")" 'daemon-reload'
 assert_contains 'systemctl: فعال‌سازی تایمر' "$(cat "$SYSTEMD_LOG")" \
   'enable --now farshub-test-peers.timer'
-assert_contains 'نصب: پیام هر ۳۰ ثانیه' "$OUT" 'هر ۳۰ ثانیه'
+assert_contains 'نصب: پیام هر ۳۰ ثانیه' "$OUT" 'every 30 seconds'
 assert_file 'نصب: peers.json پرایم شد' "$s/state/web/peers.json"
 v=$(cat "$s/state/web/peers.json" | $PY -c 'import json,sys
 d = json.load(sys.stdin)
@@ -121,12 +121,12 @@ assert_eq 'نصب دوباره: همچنان فقط دو یونیت' "$n" 2
 # --- خطاها -------------------------------------------------------------------
 prun "$s" _peers-install bogus
 assert_rc 'سمت نامعتبر: rc 2' 2
-assert_contains 'سمت نامعتبر: پیام' "$ERR" 'سمت نامعتبر'
+assert_contains 'سمت نامعتبر: پیام' "$ERR" 'invalid side'
 
 e=$(fixture); rm_on_exit="$rm_on_exit $e"
 prun "$e" _peers-install server
 assert_rc 'بدون کانفیگ: rc 1' 1
-assert_contains 'بدون کانفیگ: پیام' "$ERR" 'کانفیگ نیست'
+assert_contains 'بدون کانفیگ: پیام' "$ERR" 'config not found'
 
 # --- panel-down: حذف تایمر و peers.json، ماندن تاریخچه -----------------------
 p=$(fixture server); rm_on_exit="$rm_on_exit $p"
@@ -151,8 +151,8 @@ assert_contains 'panel-down: غیرفعال‌سازی تایمر' "$(cat "$SYST
   'disable --now farshub-test-peers.timer'
 assert_contains 'panel-down: توقف سرویس peers' "$(cat "$SYSTEMD_LOG")" \
   'stop farshub-test-peers.service'
-assert_contains 'panel-down: پیام حذف peers.json' "$OUT" 'peers.json حذف شد'
-assert_contains 'panel-down: پیام پایانی تایمر' "$OUT" 'تایمر peers متوقف'
+assert_contains 'panel-down: پیام حذف peers.json' "$OUT" 'peers.json removed'
+assert_contains 'panel-down: پیام پایانی تایمر' "$OUT" 'peers timer stopped'
 wp=$(sed -n 's/^web_port = //p' "$p/conf/server.toml")
 assert_eq 'panel-down: web_port=0 شد' "$wp" 0
 assert_gone 'panel-down: panel.conf حذف شد' "$p/state/panel.conf"

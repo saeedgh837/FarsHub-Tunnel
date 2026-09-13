@@ -48,11 +48,11 @@ cdn() {   # $1=STUB_IPS؛ بقیه آرگومان‌ها به farshub
 # --- check: IP کلادفلر = خطا ----------------------------------------------
 cdn '2606:4700:3034::ac43:8edd' check client
 assert_rc 'CF v6 خطا داد' 1
-assert_contains 'پیام CDN در check (v6)' "$OUT" 'CDN کلادفلر'
+assert_contains 'پیام CDN در check (v6)' "$OUT" 'resolves to a Cloudflare IP'
 
 cdn '104.21.46.216' check client
 assert_rc 'CF v4 خطا داد' 1
-assert_contains 'پیام CDN در check (v4)' "$OUT" 'CDN کلادفلر'
+assert_contains 'پیام CDN در check (v4)' "$OUT" 'resolves to a Cloudflare IP'
 
 cdn '2a06:98c1:3122::' check client
 assert_rc 'CF v6 بازه‌ی دوم خطا داد' 1
@@ -61,25 +61,25 @@ assert_rc 'CF v6 بازه‌ی دوم خطا داد' 1
 # 173.245.48.0/20 در v1.0.4 جا افتاده بود (false-negative).
 cdn '173.245.49.1' check client
 assert_rc '173.245.48.0/20 خطا می‌دهد' 1
-assert_contains 'پیام CDN برای 173.245' "$OUT" 'CDN کلادفلر'
+assert_contains 'پیام CDN برای 173.245' "$OUT" 'resolves to a Cloudflare IP'
 
 # 104.28-31 و 141.101.60-63 جزو CF نیستند (over-match اصلاح شد).
 cdn '104.28.1.1' check client
 assert_rc '104.28 جزو CF نیست' "$clean_rc"
-assert_missing '104.28 هشدار نمی‌گیرد' "$OUT" 'CDN کلادفلر'
+assert_missing '104.28 هشدار نمی‌گیرد' "$OUT" 'Cloudflare'
 
 cdn '141.101.63.5' check client
 assert_rc '141.101.63 جزو CF نیست' "$clean_rc"
-assert_missing '141.101.63 هشدار نمی‌گیرد' "$OUT" 'CDN کلادفلر'
+assert_missing '141.101.63 هشدار نمی‌گیرد' "$OUT" 'Cloudflare'
 
 # 108.162.190/23 و 188.114.10.0/24 هم جزو CF نیستند (over-match نهایی).
 cdn '108.162.190.5' check client
 assert_rc '108.162.190 جزو CF نیست' "$clean_rc"
-assert_missing '108.162.190 هشدار نمی‌گیرد' "$OUT" 'CDN کلادفلر'
+assert_missing '108.162.190 هشدار نمی‌گیرد' "$OUT" 'Cloudflare'
 
 cdn '188.114.10.5' check client
 assert_rc '188.114.10 جزو CF نیست' "$clean_rc"
-assert_missing '188.114.10 هشدار نمی‌گیرد' "$OUT" 'CDN کلادفلر'
+assert_missing '188.114.10 هشدار نمی‌گیرد' "$OUT" 'Cloudflare'
 
 # انتهای بازه‌ها همچنان مطابق می‌مانند.
 cdn '188.114.105.5' check client
@@ -90,7 +90,7 @@ assert_rc '108.162.192 جزو CF است' 1
 # alias کوتاه «c» باید همان رفتار «client» را بدهد (جا افتاده بود در v1.0.4).
 cdn '104.21.46.216' check c
 assert_rc 'check c هم خطای CDN می‌دهد' 1
-assert_contains 'alias c پیام CDN می‌گیرد' "$OUT" 'CDN کلادفلر'
+assert_contains 'alias c پیام CDN می‌گیرد' "$OUT" 'resolves to a Cloudflare IP'
 
 cdn '2606:4700:3034::ac43:8edd' status c
 assert_contains 'status c آی‌پی حل‌شده را نشان می‌دهد' "$OUT" '2606:4700:3034::ac43:8edd'
@@ -98,7 +98,7 @@ assert_contains 'status c آی‌پی حل‌شده را نشان می‌دهد'
 # --- check: IP معمولی = سالم ----------------------------------------------
 cdn '87.107.81.96' check client
 assert_rc 'IP معمولی سالم' "$clean_rc"
-assert_contains 'IP حل‌شده نمایش داده شد' "$OUT" 'remote_addr حل شد: 87.107.81.96'
+assert_contains 'IP حل‌شده نمایش داده شد' "$OUT" 'remote_addr resolved: 87.107.81.96'
 
 two=$(printf '%s\n%s' 87.107.81.96 31.56.178.224)
 cdn "$two" check client
@@ -108,7 +108,7 @@ assert_rc 'چند IP معمولی سالم' "$clean_rc"
 sed -i 's/^transport = .*/transport = "wssmux"/' "$C"
 cdn '2606:4700:3034::ac43:8edd' check client
 assert_rc 'wssmux پشت CDN خطا نیست' "$clean_rc"
-assert_missing 'برای ws* پیام CDN نمی‌آید' "$OUT" 'CDN کلادفلر'
+assert_missing 'برای ws* پیام CDN نمی‌آید' "$OUT" 'Cloudflare'
 sed -i 's/^transport = .*/transport = "tcpmux"/' "$C"
 
 # --- status: resolved نشان داده می‌شود -------------------------------------
@@ -118,7 +118,7 @@ assert_contains 'status آی‌پی حل‌شده را نشان می‌دهد' "
 # --- getent بی‌پاسخ: نه خطا، نه ادعای سلامت -------------------------------
 cdn '' check client
 assert_rc 'بدون پاسخ DNS خطا نیست' "$clean_rc"
-assert_missing 'بدون پاسخ DNS پیام CDN نمی‌آید' "$OUT" 'CDN'
+assert_missing 'بدون پاسخ DNS پیام CDN نمی‌آید' "$OUT" 'Cloudflare'
 
 cdn '' status client
 assert_missing 'بدون پاسخ DNS ادعای حل‌شدن نمی‌آید' "$OUT" 'resolved'

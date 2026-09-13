@@ -41,7 +41,7 @@ PATHS_OUT = (
 CONFIG_OUT = (
     'bind_addr = "0.0.0.0:3080"\n'
     'transport = "tcpmux"\n'
-    'token = "********"   # مخفی شده\n'
+    'token = "********"   # masked\n'
     "ports = [\n"
     '    "443",\n'
     "]\n"
