@@ -202,6 +202,15 @@ class TestConfig(Base):
         self.assertEqual(out["error"], "cli_failed")
         self.assertIn("quic", out["detail"])
 
+    def test_english_config_not_found_is_not_installed(self):
+        """پیام انگلیسیِ «config not found» هم مثل پیام فارسی 409 not_installed می‌دهد."""
+        self.fake.replies["config"] = (
+            1, "",
+            "farshub: config not found: /etc/farshub/server.toml - run 'farshub install server' first.\n")
+        st, out = self.call("GET", "/api/config", query={"side": ["server"]})
+        self.assertEqual(st, 409)
+        self.assertEqual(out["error"], "not_installed")
+
     def test_bad_side_is_rejected_before_the_cli(self):
         st, out = self.call("PUT", "/api/config",
                             body={"side": "../../etc", "values": {"log_level": "info"}})

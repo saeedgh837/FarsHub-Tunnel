@@ -10,7 +10,7 @@
 # ==========================================================================
 set -eu
 
-CLI_VERSION='1.0.5'
+CLI_VERSION='1.0.6'
 BRAND='FarsHub Tunnel'
 SUPPORT='https://t.me/vpsfa'
 
@@ -239,6 +239,7 @@ machine, you can leave it out.
 
 Commands:
   install <side>      install the engine, config and systemd service on this machine
+  setup [side]        interactive first-run wizard: questions, config, install
   run <side>          run directly in the terminal (no systemd) — for debugging
   start <side>        start the service
   stop <side>         stop the service
@@ -296,7 +297,9 @@ cmd_version() {
   return 0
 }
 
-cmd_token() {
+# تولید توکن تصادفی ۳۲ بایتی (۶۴ نویسه‌ی hex). cmd_token و ویزارد setup هر
+# دو از همین استفاده می‌کنند تا مسیر تولید فقط یک جا باشد.
+gen_token() {
   if command -v openssl >/dev/null 2>&1; then
     openssl rand -hex 32
   elif [ -r /dev/urandom ] && command -v od >/dev/null 2>&1; then
@@ -305,6 +308,8 @@ cmd_token() {
     die 'neither openssl nor /dev/urandom is available - generate the token manually.'
   fi
 }
+
+cmd_token() { gen_token; }
 
 # ----------------------------------------------------------------- اجرا --
 # اجرای مستقیم. خروجی موتور از فیلتر برندینگ عبور می‌کند تا کاربر «Backhaul
@@ -520,11 +525,13 @@ EOF
   chmod 644 "$1"
 }
 
-cmd_install() {
-  side=${1:-}
-  [ -n "$side" ] || die 'missing side: farshub install server|client'
-  case "$side" in server|s) side=server ;; client|c) side=client ;;
-    *) die "invalid side: '$side' (server or client)" ;; esac
+# نصبِ فایل‌ها برای سمتِ ازقبل نرمال‌شده — بدنه‌ی مشترک «farshub install» و
+# ویزارد setup. خروجی‌اش say است، پس مقصدش را فراخواننده تعیین می‌کند: در
+# install به stdout می‌رود و در setup به stderr تا stdout فقط خلاصه باشد.
+# شاخه‌ی «کانفیگ موجود» عمداً دست نمی‌زند — کانفیگی که ویزارد همین حالا
+# نوشته هم از همین شاخه سالم بیرون می‌آید.
+install_files() {                    # $1=سمت (server|client)
+  side=$1
   need_write "$LIBEXEC" "$BIN_DIR" "$CONF_DIR" "$LOG_DIR" "$STATE_DIR"
 
   # کانفیگ‌ها و یونیت‌ها: از مخزن یا از payload نصب قبلی.
@@ -552,6 +559,7 @@ cmd_install() {
   else
     install -Dm600 "$repo/configs/$side.toml" "$CONF_DIR/$side.toml"
     say "  config   → $CONF_DIR/$side.toml"
+    say "  Tip: run 'farshub setup $side' for interactive configuration."
   fi
 
   install -d -m755 "$LOG_DIR" "$STATE_DIR"
@@ -593,15 +601,298 @@ cmd_install() {
   else
     say '  service  → daemon-reload skipped (systemd not available)'
   fi
+}
+
+cmd_install() {
+  side=${1:-}
+  [ -n "$side" ] || die 'missing side: farshub install server|client'
+  case "$side" in server|s) side=server ;; client|c) side=client ;;
+    *) die "invalid side: '$side' (server or client)" ;; esac
+  install_files "$side"
 
   say ''
-  say 'Next steps:'
-  say '  1) farshub token          # generate the token'
-  say "  2) farshub edit $side     # set the token and ports"
-  say "  3) farshub enable $side   # start now and autostart at boot"
-  say '  4) farshub panel-up       # web panel (optional) — nginx + password + firewall'
+  say 'Next:'
+  say "  1) farshub setup $side     # interactive configuration"
+  say "  2) farshub enable $side    # start now and at boot"
+  say '  3) farshub panel-up        # web panel (optional)'
   say ''
   say 'The token must be exactly the same on both ends of the tunnel.'
+}
+
+# ------------------------------------------------------------------ setup --
+# ویزارد نخستین راه‌اندازی: پرسش‌ها، اعتبارسنجی، خلاصه، و بعد نوشتن + نصب.
+# پرسش‌ها و پیشرفت نصب به stderr می‌روند و stdout فقط خلاصه و بلوک پایانی
+# را دارد تا خروجیِ pipe شده هم اسکریپت‌پذیر باشد. تا تأیید نهایی هیچ چیز
+# روی دیسک نوشته نمی‌شود؛ سقط در هر نقطه یعنی فایل‌سیستم دست‌نخورده.
+
+# خواندن guarded: با set -e، خواندنِ EOF بدون محافظ اسکریپت را بی‌پیام
+# می‌کشد؛ اینجا به پیام سقط «no input» ترجمه می‌شود. پرامپت همیشه stderr.
+setup_read() {                     # $1=نام متغیر  $2=پرامپت → پاسخ در متغیر
+  printf '%s' "$2" >&2
+  IFS= read -r "$1" || die 'setup aborted - no input'
+}
+
+# پرسش بله/خیر: خالی = پیش‌فرض؛ y/Y = بله؛ n/N = خیر؛ سه پاسخ ناشناخته = سقط.
+setup_yn() {                       # $1=پرامپت  $2=پیش‌فرض y|n → rc 0 بله، rc 1 خیر
+  _t=0
+  while :; do
+    setup_read _a "$1"
+    case "$_a" in
+      y|Y) return 0 ;;
+      n|N) return 1 ;;
+      '')
+        if [ "$2" = y ]; then return 0; fi
+        return 1
+        ;;
+    esac
+    _t=$((_t + 1))
+    [ "$_t" -ge 3 ] && die 'setup aborted - too many invalid answers'
+  done
+}
+
+# پرسش با اعتبارسنجیِ toml_value: همان پیام‌های انگلیسی apply-config چاپ و
+# همان پرسش دوباره پرسیده می‌شود؛ سه پاسخ نامعتبر = سقط. پاسخ معتبرِ خام در
+# SETUP_ANS می‌نشیند — نوشتن فایل از مقدار خام انجام می‌شود که برای این
+# کلیدها با خروجی toml_value بایت‌به‌بایت یکی است.
+setup_ask() {                      # $1=سمت $2=کلید $3=پرامپت $4=پیش‌فرض
+  _t=0
+  while :; do
+    setup_read SETUP_ANS "$3"
+    [ -n "$SETUP_ANS" ] || SETUP_ANS=${4:-}
+    if _tv=$(toml_value "$1" "$2" "$SETUP_ANS" 2>&1); then
+      return 0
+    fi
+    printf '%s\n' "$_tv" >&2
+    _t=$((_t + 1))
+    [ "$_t" -ge 3 ] && die 'setup aborted - too many invalid answers'
+  done
+}
+
+# پرسش توکن: g یا خالی = تولید با gen_token؛ e = واردکردن با اعتبارسنجی.
+# پاسخِ نامعتبرِ توکنِ واردشده دوباره «Token: » را می‌پرسد، نه پرسش g/e.
+setup_token() {                    # $1=سمت $2=پرامپت → توکن در SETUP_ANS
+  _t=0
+  while :; do
+    setup_read _ge "$2"
+    case "$_ge" in
+      ''|g)
+        SETUP_ANS=$(gen_token)
+        return 0
+        ;;
+      e)
+        _tt=0
+        while :; do
+          setup_read _tk 'Token: '
+          if _tv=$(toml_value "$1" token "$_tk" 2>&1); then
+            SETUP_ANS=$_tk
+            return 0
+          fi
+          printf '%s\n' "$_tv" >&2
+          _tt=$((_tt + 1))
+          [ "$_tt" -ge 3 ] && die 'setup aborted - too many invalid answers'
+        done
+        ;;
+    esac
+    _t=$((_t + 1))
+    [ "$_t" -ge 3 ] && die 'setup aborted - too many invalid answers'
+  done
+}
+
+cmd_setup() {
+  side=${1:-}
+  if [ -n "$side" ]; then
+    case "$side" in
+      server|s) side=server ;;
+      client|c) side=client ;;
+      *) die "invalid side: '$side' (server or client)" 2 ;;
+    esac
+  fi
+  # پیش از نخستین پرسش، با همان دایرکتوری‌های install — شکست زودهنگام
+  # بهتر از سقط وسط ویزارد است.
+  need_write "$LIBEXEC" "$BIN_DIR" "$CONF_DIR" "$LOG_DIR" "$STATE_DIR"
+
+  # سمت: setup هرگز حدس نمی‌زند؛ بدون آرگومان همیشه پرسیده می‌شود.
+  if [ -z "$side" ]; then
+    _t=0
+    while :; do
+      setup_read _sa 'Side - server listens, client dials [server/client]: '
+      case "$_sa" in
+        server|s) side=server; break ;;
+        client|c) side=client; break ;;
+      esac
+      _t=$((_t + 1))
+      [ "$_t" -ge 3 ] && die 'setup aborted - too many invalid answers'
+    done
+  fi
+
+  conf="$CONF_DIR/$side.toml"
+
+  # کانفیگ موجود: نخستین پرسشِ سمتِ انتخاب‌شده. ردِ بازنویسی = دست‌نخورده.
+  if [ -f "$conf" ]; then
+    if ! setup_yn "Config file $conf already exists. Overwrite? [y/N]: " n; then
+      die 'setup aborted - existing config kept'
+    fi
+  fi
+
+  listen=''; addr=''; transport=''; token=''; webport=''
+  ports_nl=''; ports_joined=''; resolved=''
+
+  if [ "$side" = server ]; then
+    setup_ask server bind_addr 'Tunnel listen address [0.0.0.0:2083]: ' 0.0.0.0:2083
+    listen=$SETUP_ANS
+    setup_ask server transport 'Transport [tcpmux]: ' tcpmux
+    transport=$SETUP_ANS
+    setup_token server 'Auth token - [g]enerate or [e]nter [g]: '
+    token=$SETUP_ANS
+    # حلقه‌ی ports: تنها استثنای شمارش خطا — مدخل نامعتبر هرگز سقط نمی‌آورد؛
+    # فقط EOF (سقط) یا خط خالی (پایان) از حلقه بیرون می‌دهد.
+    while :; do
+      setup_read _pr 'Port mapping (local=remote[:dest]) - empty to finish: '
+      [ -n "$_pr" ] || break
+      if valid_port_row "$_pr"; then
+        ports_nl="$ports_nl$_pr
+"
+        if [ -n "$ports_joined" ]; then
+          ports_joined="$ports_joined, $_pr"
+        else
+          ports_joined=$_pr
+        fi
+      else
+        printf "invalid ports entry: '%s'\n" "$_pr" >&2
+      fi
+    done
+    setup_ask server web_port 'Web/panel port [0]: ' 0
+    webport=$SETUP_ANS
+  else
+    setup_ask client remote_addr 'Server address (host:port): ' ''
+    addr=$SETUP_ANS
+    setup_ask client transport 'Transport [tcpmux]: ' tcpmux
+    transport=$SETUP_ANS
+
+    # بررسی کلادفلر: به هر دو پاسخ (نشانی و ترنسپورت) نیاز دارد. دامنه با
+    # getent حل می‌شود؛ IP مستقیم از DNS رد می‌شود ولی همان هم سنجیده
+    # می‌شود. مرگ DNS هشدار می‌دهد و رد می‌شود؛ IP کلادفلر با ترنسپورت
+    # غیر ws* همان الگوی «farshub check» است: تونل هرگز بالا نمی‌آید.
+    host=$(addr_host "$addr")
+    allips=''
+    case "$host" in
+      *:*)
+        if printf '%s' "$host" |
+             grep -Eq '^([0-9A-Fa-f]{0,4}:){1,7}[0-9A-Fa-f]{0,4}$'; then
+          allips=$host
+        fi
+        ;;
+      *)
+        if valid_ipv4 "$host"; then allips=$host; fi
+        ;;
+    esac
+    if [ -z "$allips" ]; then
+      allips=$(resolve_host "$host")
+    fi
+    if [ -n "$allips" ]; then
+      resolved=$(printf '%s\n' "$allips" | head -n 1)
+    else
+      printf 'Warning: could not resolve %s - configuring as entered.\n' "$host" >&2
+    fi
+    _cf=0
+    for _ip in $allips; do
+      if is_cloudflare_ip "$_ip"; then _cf=1; fi
+    done
+    if [ "$_cf" = 1 ]; then
+      case "$transport" in
+        ws|wss|wsmux|wssmux) ;;
+        *)
+          printf 'Warning: %s resolves to a Cloudflare IP.\n' "$host" >&2
+          printf "The Cloudflare proxy only passes HTTP traffic - with transport '%s' the tunnel's control channel will never reach the server.\n" \
+            "$transport" >&2
+          printf "%s\n" "Use the server's direct IP or a DNS-only (grey cloud) record." >&2
+          if ! setup_yn 'Continue anyway? [y/N]: ' n; then
+            die 'setup aborted - Cloudflare-proxied address requires a ws* transport'
+          fi
+          ;;
+      esac
+    fi
+
+    setup_token client 'Auth token (must match the server) - [g]enerate or [e]nter [g]: '
+    token=$SETUP_ANS
+    setup_ask client web_port 'Web/panel port [0]: ' 0
+    webport=$SETUP_ANS
+  fi
+
+  # خلاصه روی stdout، پیش از هر نوشتن. توکن تازه‌تولید عمداً کامل چاپ
+  # می‌شود — استثنای قاعده‌ی «توکن هرگز چاپ نمی‌شود»، چون باید دستی به
+  # سمت دیگر تونل کپی شود.
+  printf '%-16s%s\n' 'Side:' "$side"
+  if [ "$side" = server ]; then
+    printf '%-16s%s\n' 'Listen:' "$listen"
+  else
+    printf '%-16s%s\n' 'Server:' "$addr"
+    printf '%-16s%s\n' 'Resolved:' "${resolved:--}"
+  fi
+  printf '%-16s%s\n' 'Transport:' "$transport"
+  printf '%-16s%s\n' 'Token:' "$token"
+  if [ "$side" = server ]; then
+    if [ -n "$ports_joined" ]; then
+      printf '%-16s%s\n' 'Ports:' "$ports_joined"
+    else
+      printf '%-16s%s\n' 'Ports:' '-'
+      printf 'Warning: no port mappings - the tunnel will forward no user ports.\n'
+    fi
+  fi
+  printf '%-16s%s\n' 'Web port:' "$webport"
+
+  if ! setup_yn 'Write config and install? [Y/n]: ' y; then
+    die 'setup aborted - nothing written'
+  fi
+
+  # نوشتن اتمیک کانفیگ (tmp + mv)؛ پشتیبان فقط هنگام بازنویسی. فقط کلیدهای
+  # پاسخ‌داده‌شده می‌آیند — بقیه با پیش‌فرضِ موتور اجرا می‌مانند.
+  tmp="$conf.new.$$"
+  {
+    printf '%s\n' "# FarsHub Tunnel - $side config - written by 'farshub setup'"
+    printf '%s\n' '# full option list: farshub config / docs/CLI.md'
+    printf '%s\n' '# keys are compiled into the engine - change values only'
+    printf '\n'
+    printf '[%s]\n' "$side"
+    if [ "$side" = server ]; then
+      printf 'bind_addr = "%s"\n' "$listen"
+    else
+      printf 'remote_addr = "%s"\n' "$addr"
+    fi
+    printf 'transport = "%s"\n' "$transport"
+    printf 'token = "%s"\n' "$token"
+    if [ "$side" = server ]; then
+      if [ -z "$ports_nl" ]; then
+        printf 'ports = []\n'
+      else
+        printf 'ports = [\n'
+        for _p in $ports_nl; do printf '    "%s",\n' "$_p"; done
+        printf ']\n'
+      fi
+    fi
+    printf 'web_port = %s\n' "$webport"
+  } >"$tmp" || die 'could not write the config.'
+  chmod 600 "$tmp"
+  if [ -f "$conf" ]; then
+    cp "$conf" "$conf.bak"
+    chmod 600 "$conf.bak"
+  fi
+  mv "$tmp" "$conf"
+
+  # همان نصبِ «farshub install» — تمام پیشرفت به stderr تا stdout فقط
+  # خلاصه و بلوک پایانی را داشته باشد. شاخه‌ی کانفیگِ موجودِ install_files
+  # کانفیگی که همین حالا نوشته شد را دست‌نخورده می‌گذارد.
+  install_files "$side" >&2
+
+  say 'Setup complete.'
+  say "Config: $conf"
+  say 'Next:'
+  say '  sudo farshub start'
+  say '  sudo farshub check'
+  say '  sudo farshub panel-up    (optional web panel)'
+  if [ "$side" = client ]; then
+    say 'The token must match the server side exactly.'
+  fi
 }
 
 # ---------------------------------------------------------------- بررسی --
@@ -1512,6 +1803,7 @@ peers_service_unit() {                    # $1=سمت → متن یونیت سر
 [Unit]
 Description=FarsHub Tunnel - peers JSON (side $1)
 Documentation=https://github.com/saeedgh837/FarsHub-Tunnel
+After=$UNIT_PREFIX-$1.service
 
 [Service]
 Type=oneshot
@@ -1917,6 +2209,7 @@ cmd=$1; shift
 
 case "$cmd" in
   install)                 cmd_install "$@" ;;
+  setup)                   cmd_setup "$@" ;;
   run)                     cmd_run "$@" ;;
   _exec)                   cmd_exec "$@" ;;   # داخلی — یونیت systemd
   start|stop|restart|enable|disable) svc "$cmd" "$@" ;;

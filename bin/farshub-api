@@ -151,7 +151,7 @@ def read_config(side):
     """
     rc, out, e = run_cli(["config", side])
     if rc != 0:
-        if "کانفیگی" in (e or "") or "کانفیگ نیست" in (e or ""):
+        if "کانفیگی" in (e or "") or "کانفیگ نیست" in (e or "") or "config not found" in (e or ""):
             return None, err(409, "not_installed", e)
         return None, cli_err(rc, out, e)
     return parse_toml_lite(out), None

@@ -97,6 +97,8 @@ assert_contains 'یونیت: ExecStart با بازنویسی اتمیک' "$svc" 
   "ExecStart=/bin/sh -c '$s/bin/farshub peers server > $s/state/web/peers.json.tmp && mv $s/state/web/peers.json.tmp $s/state/web/peers.json'"
 assert_contains 'یونیت: محافظت فایل‌سیستم' "$svc" 'ProtectSystem=strict'
 assert_contains 'یونیت: نوشتن فقط به state' "$svc" "ReadWritePaths=$s/state"
+assert_contains 'یونیت: وابستگی After به سرویس سمت' "$svc" \
+  'After=farshub-test-server.service'
 tmr=$(cat "$s/units/farshub-test-peers.timer")
 assert_contains 'تایمر: OnBootSec' "$tmr" 'OnBootSec=15'
 assert_contains 'تایمر: OnUnitActiveSec' "$tmr" 'OnUnitActiveSec=30'

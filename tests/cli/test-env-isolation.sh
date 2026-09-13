@@ -27,6 +27,7 @@ assert_missing 'اشاره‌ای به سایت زنده نیست' "$OUT" 'site_
 #    محیطی داشته باشد وگرنه _exec سرویس کانفیگ اشتباه را برمی‌دارد.
 envrun "$d" install server
 assert_rc 'install با override' 0
+assert_contains 'install: راهنمای setup' "$OUT" "Tip: run 'farshub setup server'"
 assert_file 'یونیت با نام جدا نوشته شد' "$d/units/farshub-test-server.service"
 assert_file 'drop-in محیطی نوشته شد' "$d/units/farshub-test-server.service.d/10-farshub-env.conf"
 dropin=$(cat "$d/units/farshub-test-server.service.d/10-farshub-env.conf" 2>/dev/null || true)
