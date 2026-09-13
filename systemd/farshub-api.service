@@ -1,21 +1,21 @@
-# سرویس API پنل وب فارس‌هاب.
+# FarsHub web panel API service.
 #
-# روی 127.0.0.1 گوش می‌دهد و هیچ‌وقت مستقیم در دسترس شبکه نیست — nginx جلویش
-# است و auth_basic آنجاست.
+# It listens on 127.0.0.1 and is never directly reachable from the network -
+# nginx sits in front of it and the auth_basic lives there.
 #
-# با کاربر بی‌shell «farshub-api» اجرا می‌شود و برای هر کار نیازمند root
-# «sudo farshub <زیردستور>» را با آرگومان ثابت صدا می‌زند (فهرست ثابت در
-# /etc/sudoers.d/farshub-api).
+# It runs as the shell-less 'farshub-api' user and, for every task that needs
+# root, calls 'sudo farshub <subcommand>' with a fixed argument (the fixed
+# list lives in /etc/sudoers.d/farshub-api).
 #
-# دو تنظیم سخت‌سازی عمداً اینجا نیست:
-#   NoNewPrivileges  → اجرای setuid را می‌بندد و sudo setuid است.
-#   ProtectSystem    → mount namespace به بچه‌های root هم ارث می‌رسد، پس
-#                      «sudo farshub apply-config» نمی‌تواند /etc/farshub را
-#                      بنویسد. در برابر خودِ کاربر farshub-api هم چیزی اضافه
-#                      نمی‌کند: مجوزهای معمولی یونیکس همان کار را می‌کنند.
+# Two hardening settings are deliberately absent here:
+#   NoNewPrivileges  → blocks setuid execution, and sudo is setuid.
+#   ProtectSystem    → the mount namespace is inherited by root's children
+#                      too, so 'sudo farshub apply-config' could not write
+#                      /etc/farshub. And against the farshub-api user itself
+#                      it adds nothing: ordinary unix permissions do that job.
 
 [Unit]
-Description=FarsHub Tunnel — سرویس API پنل
+Description=FarsHub Tunnel - panel API service
 Documentation=https://github.com/saeedgh837/FarsHub-Tunnel
 After=network-online.target
 Wants=network-online.target
